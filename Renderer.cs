@@ -8,6 +8,8 @@ internal static unsafe class Renderer
         new Span<uint>(px, w * h).Clear();
 
         for (int k = sim.Z.Count - 1; k >= 0; k--) DrawPile(px, w, h, sim.Z[k], 0);
+        foreach (var s in sim.Z)
+            if (s.LinkR != null) DrawBridge(px, w, h, s, s.LinkR);
 
         var ps = sim.Particles;
         for (int n = 0; n < sim.Count; n++)
@@ -48,8 +50,10 @@ internal static unsafe class Renderer
 
             if (!s.IsGround)
             {
-                // Rounded snow edges instead of a hard vertical cut at the window corner.
-                float de = MathF.Min(cx, s.Right - s.Left - cx);
+                // Rounded snow edges instead of a hard vertical cut at the window corner
+                // (not at an end joined to a neighbouring window: the blanket carries on there).
+                float de = MathF.Min(s.LinkL != null ? float.PositiveInfinity : cx,
+                                     s.LinkR != null ? float.PositiveInfinity : s.Right - s.Left - cx);
                 float rad = MathF.Min(hh, 10f);
                 if (de < rad) { float q = de / rad; hh *= MathF.Sqrt(q * (2f - q)); }
             }
@@ -84,6 +88,32 @@ internal static unsafe class Renderer
                     if (cov <= 0) continue;
                     PileColor(px + y * w + x, bottom - (y + 0.5f), shade, MathF.Min(cov, 1f));
                 }
+            }
+        }
+    }
+
+    /// <summary>Snow spanning the small gap between two joined windows, so the blanket looks continuous.</summary>
+    static void DrawBridge(uint* px, int w, int h, Surface a, Surface b)
+    {
+        const float Cell = SnowSim.Cell;
+        int ea = a.LinkREdge, eb = b.LinkLEdge;
+        float xa = a.Left + (ea + 1) * Cell, xb = b.Left + eb * Cell;
+        if (xb - xa < 0.5f) return;
+        float topA = a.AnchorY - HeightAt(a, (ea + 0.5f) * Cell), topB = b.AnchorY - HeightAt(b, (eb + 0.5f) * Cell);
+        if (a.AnchorY - topA < 0.5f && b.AnchorY - topB < 0.5f) return;
+        int x0 = Math.Max((int)MathF.Floor(xa), 0), x1 = Math.Min((int)MathF.Ceiling(xb), w);
+        for (int x = x0; x < x1; x++)
+        {
+            float t = Math.Clamp((x + 0.5f - xa) / (xb - xa), 0f, 1f);
+            float top = topA + (topB - topA) * t;
+            float bottom = a.AnchorY + (b.AnchorY - a.AnchorY) * t;
+            if (bottom - top < 0.3f) continue;
+            int y0 = Math.Max((int)MathF.Floor(top), 0), y1 = Math.Min((int)MathF.Ceiling(bottom), h);
+            for (int y = y0; y < y1; y++)
+            {
+                float cov = MathF.Min(y + 1, bottom) - MathF.Max(y, top);
+                if (cov <= 0) continue;
+                PileColor(px + y * w + x, y + 0.5f - top, 1f, MathF.Min(cov, 1f));
             }
         }
     }

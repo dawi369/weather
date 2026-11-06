@@ -29,6 +29,10 @@ internal sealed class Surface
     public float DripL, DripR;          // timers for edge drips
     public float SpillL, SpillR;        // snow (px²) that has flowed over each edge, waiting to drop
 
+    // A window sitting right next to this one: the two piles join into one blanket across the gap.
+    public Surface? LinkL, LinkR;
+    public int LinkLEdge, LinkREdge;    // our outermost visible cell on that side
+
     // Natural variation (see SnowSim.ComputeFields): every surface gets its own slowly drifting
     // noise pattern, so snow builds into mounds and the two ends of a window never look alike.
     public int Seed;
@@ -155,10 +159,12 @@ internal sealed class SnowSim
         ComputeVisibility();
         foreach (var s in Z)
             if (!s.Clamped) Collide(s);
+        ComputeLinks();
         UpdateWind(dt);
         Spawn(dt);
         StepParticles(dt);
         foreach (var s in Z) Settle(s, dt);
+        foreach (var s in Z) FlowAcross(s);
         Settle(Ground, dt);
         WipeTimer(dt);
     }
@@ -786,6 +792,87 @@ internal sealed class SnowSim
         }
     }
 
+    // ───────────────────────────── neighbouring windows ─────────────────────────────
+
+    const float LinkMaxGap = 14f, LinkMaxStep = 40f;
+
+    /// <summary>
+    /// Find windows sitting side by side (snapped, or nearly touching, tops at similar heights).
+    /// Their touching ends are joined: no rounded-off edges, no snow spilling into the gap, and
+    /// snow flows from one to the other according to the actual surface heights.
+    /// </summary>
+    void ComputeLinks()
+    {
+        foreach (var s in Z) { s.LinkL = s.LinkR = null; }
+        foreach (var a in Z)
+        {
+            if (a.Clamped || a.Cells < 4) continue;
+            float bestGap = float.MaxValue;
+            foreach (var b in Z)
+            {
+                if (b == a || b.Clamped || b.Cells < 4 || b.LinkL != null) continue;
+                if (MathF.Abs(a.AnchorY - b.AnchorY) > LinkMaxStep) continue;
+                // a's right end against b's left end; allow a little overlap.
+                float gap = b.Left - a.Right;
+                if (gap < -LinkMaxGap || gap > LinkMaxGap) continue;
+                int ea = LastVisible(a), eb = FirstVisible(b);
+                if (ea < 0 || eb < 0) continue;
+                float xa = a.Left + (ea + 1) * Cell, xb = b.Left + eb * Cell;
+                float realGap = xb - xa;
+                if (realGap < -Cell * 2 || realGap > LinkMaxGap || MathF.Abs(realGap) >= bestGap) continue;
+                bestGap = MathF.Abs(realGap);
+                if (a.LinkR != null) a.LinkR.LinkL = null;
+                a.LinkR = b; a.LinkREdge = ea;
+                b.LinkL = a; b.LinkLEdge = eb;
+            }
+        }
+    }
+
+    // Outermost visible cells near each end (an end tucked under a window in front doesn't count).
+    static int LastVisible(Surface s)
+    {
+        for (int i = s.Cells - 1; i >= Math.Max(0, s.Cells - 1 - (int)(LinkMaxGap / Cell)); i--) if (s.Vis[i] != 0) return i;
+        return -1;
+    }
+    static int FirstVisible(Surface s)
+    {
+        for (int i = 0; i < Math.Min(s.Cells, 1 + (int)(LinkMaxGap / Cell)); i++) if (s.Vis[i] != 0) return i;
+        return -1;
+    }
+
+    /// <summary>
+    /// Snow going over one end of a window: onto the neighbouring window if one is joined there,
+    /// otherwise into that edge's spill, to drop off in chunks.
+    /// </summary>
+    void OverEdge(Surface s, bool left, float vol)
+    {
+        var n = left ? s.LinkL : s.LinkR;
+        if (n != null)
+        {
+            int e = left ? n.LinkREdge : n.LinkLEdge;
+            if (e >= 0 && e < n.Cells) { n.H[e] = MathF.Min(MaxPile, n.H[e] + vol / Cell); return; }
+        }
+        if (left) s.SpillL += vol; else s.SpillR += vol;
+    }
+
+    /// <summary>Let snow flow across a join, levelling by real surface height (a higher pile slides onto a lower one).</summary>
+    void FlowAcross(Surface a)
+    {
+        var b = a.LinkR;
+        if (b == null) return;
+        int ea = a.LinkREdge, eb = b.LinkLEdge;
+        for (int k = 0; k < 3; k++) // a few cells deep on each side, so the join looks continuous
+        {
+            int ia = ea - k, ib = eb + k;
+            if (ia < 0 || ib >= b.Cells) break;
+            float topA = a.AnchorY - a.H[ia], topB = b.AnchorY - b.H[ib];
+            float rep = Repose * (k * 2 + 1);
+            float d = topB - topA; // > 0: b's surface is lower, snow slides from a to b
+            if (d > rep) { float t = MathF.Min(a.H[ia], (d - rep) * 0.25f); a.H[ia] -= t; b.H[ib] += t; }
+            else if (d < -rep) { float t = MathF.Min(b.H[ib], (-d - rep) * 0.25f); b.H[ib] -= t; a.H[ia] += t; }
+        }
+    }
+
     // ───────────────────────────── natural variation ─────────────────────────────
 
     static float Hash(int seed, int i)
@@ -864,10 +951,7 @@ internal sealed class SnowSim
                 int to = i + dir * k;
                 if (to >= 0 && to < n) h[to] += part; else lost += part;
             }
-            if (lost > 0 && !s.IsGround)
-            {
-                if (dir > 0) s.SpillR += lost * Cell * 0.6f; else s.SpillL += lost * Cell * 0.6f;
-            }
+            if (lost > 0 && !s.IsGround) OverEdge(s, left: dir < 0, lost * Cell * 0.6f);
         }
     }
 
@@ -899,7 +983,7 @@ internal sealed class SnowSim
                 if (h[i] > cap)
                 {
                     float ex = h[i] - cap; h[i] = cap;
-                    if (i > 0) h[i - 1] += ex; else s.SpillL += ex * Cell;
+                    if (i > 0) h[i - 1] += ex; else OverEdge(s, left: true, ex * Cell);
                 }
             }
             for (int i = mid + 1; i < n; i++)
@@ -908,7 +992,7 @@ internal sealed class SnowSim
                 if (h[i] > cap)
                 {
                     float ex = h[i] - cap; h[i] = cap;
-                    if (i < n - 1) h[i + 1] += ex; else s.SpillR += ex * Cell;
+                    if (i < n - 1) h[i + 1] += ex; else OverEdge(s, left: false, ex * Cell);
                 }
             }
         }
@@ -942,6 +1026,9 @@ internal sealed class SnowSim
         float edgeR = EdgeLimit * s.EdgeVarR * (wf > 0 ? 1f + 0.7f * wf : 1f + 0.45f * wf);
         float slopeL = Repose * 1.4f * (1.3f - 0.3f * s.EdgeVarR);
         float slopeR = Repose * 1.4f * (1.3f - 0.3f * s.EdgeVarL);
+        // A joined end (window right next to us) has no edge to fall off: no shoulder there.
+        if (s.LinkL != null) edgeL = float.PositiveInfinity;
+        if (s.LinkR != null) edgeR = float.PositiveInfinity;
         for (int d = 0; d < n / 2; d++)
         {
             int l = d, r = n - 1 - d;
@@ -998,6 +1085,7 @@ internal sealed class SnowSim
         int e = left ? 0 : s.Cells - 1;
         ref float timer = ref (left ? ref s.DripL : ref s.DripR);
         ref float spill = ref (left ? ref s.SpillL : ref s.SpillR);
+        if ((left ? s.LinkL : s.LinkR) != null && spill > 0) { float v = spill; spill = 0; OverEdge(s, left, v); return; }
         if (s.Vis[e] == 0) { spill = 0; return; } // edge hidden behind a window: nothing to show
         if (spill < 0.6f) return;
         timer -= dt;
