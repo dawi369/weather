@@ -14,12 +14,12 @@ internal sealed class Settings
     public int FlakeSize { get; set; } = 100;          // %
     public int FlakeBrightness { get; set; } = 70;     // % opacity of the nearest flakes
     public int Wind { get; set; } = 22;                // px/s, negative blows left
-    public int Gusts { get; set; } = 65;               // % how much the wind varies
+    public int Gusts { get; set; } = 50;               // % how much the wind varies
 
     // Settled snow
-    public int BuildupSpeed { get; set; } = 100;       // %
+    public int BuildupSpeed { get; set; } = 60;        // %
     public int Stickiness { get; set; } = 30;          // % 0 = flows and shakes off easily, 100 = stays put
-    public int MaxDepth { get; set; } = 40;            // px: deepest snow can pile on a window
+    public int MaxDepth { get; set; } = 30;            // px: deepest snow can pile on a window
     public int FlingSensitivity { get; set; } = 50;    // % how easily a quick move throws snow
     public bool TaskbarSnow { get; set; } = true;
 

@@ -1,0 +1,70 @@
+name: Build
+
+# Every push to main builds WeatherSnow.exe and puts it on the "Latest build" release, so anyone can
+# download it from the repo's Releases page (no sign-in needed):
+#   https://github.com/<owner>/<repo>/releases/latest/download/WeatherSnow.exe
+# Pushing a version tag (e.g. v1.0.0) also creates a permanent release for that version.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to publish releases
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # One self-contained exe: runs on any Windows 10/11 x64 PC without installing .NET.
+      - name: Publish
+        run: >
+          dotnet publish Weather.csproj -c Release -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:EnableCompressionInSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=None
+          -o out
+
+      # Also attached to the workflow run (handy for pull requests).
+      - name: Upload exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeatherSnow
+          path: out/WeatherSnow.exe
+          if-no-files-found: error
+
+      # Push to main: replace the "Latest build" release with this commit's exe.
+      - name: Update "Latest build" release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --cleanup-tag --yes 2>$null
+          $global:LASTEXITCODE = 0
+          $notes = "Built automatically from $env:GITHUB_SHA.`n`nDownload **WeatherSnow.exe** below and run it; the snowflake appears in your system tray. No install needed.`n`nWindows may warn that the app is from an unknown publisher: click **More info** → **Run anyway**."
+          gh release create latest out/WeatherSnow.exe --target $env:GITHUB_SHA --title "Latest build" --notes $notes --latest
+
+      # Version tag: a permanent release for that version.
+      - name: Create version release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/WeatherSnow.exe
+          generate_release_notes: true
+          make_latest: true

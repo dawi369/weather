@@ -814,40 +814,45 @@ internal sealed class SnowSim
     void ComputeLinks()
     {
         foreach (var s in Z) { s.LinkL = s.LinkR = null; }
+        // a = the surface on the left of the join, b = the one on the right.
         foreach (var a in Z)
         {
             if (a.Clamped || a.Cells < 4) continue;
             float bestGap = float.MaxValue;
+            Surface? best = null;
+            int bestEa = 0, bestEb = 0;
             foreach (var b in Z)
             {
                 if (b == a || b.Clamped || b.Cells < 4 || b.LinkL != null) continue;
                 if (MathF.Abs(a.AnchorY - b.AnchorY) > LinkMaxStep) continue;
-                // a's right end against b's left end; allow a little overlap.
-                float gap = b.Left - a.Right;
-                if (gap < -LinkMaxGap || gap > LinkMaxGap) continue;
-                int ea = LastVisible(a), eb = FirstVisible(b);
-                if (ea < 0 || eb < 0) continue;
-                float xa = a.Left + (ea + 1) * Cell, xb = b.Left + eb * Cell;
-                float realGap = xb - xa;
-                if (realGap < -Cell * 2 || realGap > LinkMaxGap || MathF.Abs(realGap) >= bestGap) continue;
-                bestGap = MathF.Abs(realGap);
-                if (a.LinkR != null) a.LinkR.LinkL = null;
-                a.LinkR = b; a.LinkREdge = ea;
-                b.LinkL = a; b.LinkLEdge = eb;
+                // Where the two blankets could meet: the ends touching, b's left side standing in front
+                // of a's snow, or a's right side standing in front of b's snow.
+                for (int pick = 0; pick < 2; pick++)
+                {
+                    float x = pick == 0 ? b.Left : a.Right;
+                    if (x < a.Left + Cell * 4 || x > a.Right + LinkMaxGap) continue;
+                    if (x < b.Left - LinkMaxGap || x > b.Right - Cell * 4) continue;
+                    // a's last visible column just left of x, with nothing of a visible right after it.
+                    int ea = Math.Min(a.Cells - 1, (int)MathF.Floor((x - a.Left) / Cell) - 1);
+                    while (ea >= 0 && a.Vis[ea] == 0 && (x - (a.Left + (ea + 1) * Cell)) < LinkMaxGap) ea--;
+                    if (ea < 0 || a.Vis[ea] == 0) continue;
+                    if (ea + 1 < a.Cells && a.Vis[ea + 1] != 0) continue; // a's snow carries on past x: no join
+                    // b's first visible column just right of x, with nothing of b visible right before it.
+                    int eb = Math.Max(0, (int)MathF.Ceiling((x - b.Left) / Cell));
+                    while (eb < b.Cells && b.Vis[eb] == 0 && (b.Left + eb * Cell - x) < LinkMaxGap) eb++;
+                    if (eb >= b.Cells || b.Vis[eb] == 0) continue;
+                    if (eb - 1 >= 0 && b.Vis[eb - 1] != 0) continue;
+                    float gap = (b.Left + eb * Cell) - (a.Left + (ea + 1) * Cell);
+                    if (gap < -Cell * 2 || gap > LinkMaxGap || MathF.Abs(gap) >= bestGap) continue;
+                    bestGap = MathF.Abs(gap); best = b; bestEa = ea; bestEb = eb;
+                }
+            }
+            if (best != null)
+            {
+                a.LinkR = best; a.LinkREdge = bestEa;
+                best.LinkL = a; best.LinkLEdge = bestEb;
             }
         }
-    }
-
-    // Outermost visible cells near each end (an end tucked under a window in front doesn't count).
-    static int LastVisible(Surface s)
-    {
-        for (int i = s.Cells - 1; i >= Math.Max(0, s.Cells - 1 - (int)(LinkMaxGap / Cell)); i--) if (s.Vis[i] != 0) return i;
-        return -1;
-    }
-    static int FirstVisible(Surface s)
-    {
-        for (int i = 0; i < Math.Min(s.Cells, 1 + (int)(LinkMaxGap / Cell)); i++) if (s.Vis[i] != 0) return i;
-        return -1;
     }
 
     /// <summary>The neighbour's snow surface (screen y) at a joined end, or NaN if not joined.</summary>
@@ -1027,8 +1032,13 @@ internal sealed class SnowSim
         }
         else
         {
+            // Normally toward the nearer end. A joined end isn't a way out (the neighbour would push it
+            // straight back and it would pile up at the join), so then it goes toward the free end.
             int mid = n / 2;
-            for (int i = mid; i >= 0; i--)
+            bool joinedL = s.LinkL != null, joinedR = s.LinkR != null;
+            int split = joinedL && !joinedR ? -1 : joinedR && !joinedL ? n - 1 : mid;
+            if (joinedL && joinedR) split = -1; // both ends joined: just let it run one way; caps hold it
+            for (int i = split; i >= 0; i--)
             {
                 float cap = MaxDepth * s.Cp[i];
                 if (h[i] > cap)
@@ -1037,7 +1047,7 @@ internal sealed class SnowSim
                     if (i > 0) h[i - 1] += ex; else OverEdge(s, left: true, ex * Cell);
                 }
             }
-            for (int i = mid + 1; i < n; i++)
+            for (int i = split + 1; i < n; i++)
             {
                 float cap = MaxDepth * s.Cp[i];
                 if (h[i] > cap)

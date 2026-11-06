@@ -13,22 +13,31 @@ Clicks always go straight through it.
 - **Rides the taskbar.** Snow sits on the taskbar and follows it when an auto-hide taskbar slides in and out.
 - **Gets out of the way.** It hides behind maximized windows and full-screen games and videos, and drops what had piled up when you minimize.
 
-## Getting started
+## Download
 
-You need Windows 10 or 11 and the [.NET 10 SDK](https://dotnet.microsoft.com/download).
+**[⬇ Download WeatherSnow.exe](https://github.com/dawi369/weather/releases/latest/download/WeatherSnow.exe)** (Windows 10/11, 64-bit)
+
+Just run it, nothing to install. The snowflake shows up in your system tray.
+Windows may say the app is from an unknown publisher: click **More info** → **Run anyway**.
+
+Double-click the tray snowflake for settings: snowfall, flake size, wind and gusts, how sticky the snow is,
+how deep it can get, and when to clear it. Right-click for pause, clear and start-with-Windows.
+
+A fresh exe is built automatically on every push to `main` (see [Releases](https://github.com/dawi369/weather/releases)).
+
+## Building it yourself
+
+You need the [.NET 10 SDK](https://dotnet.microsoft.com/download).
 
 ```
 dotnet run -c Release
 ```
 
-Or build a single exe:
+Or build the same single exe the release uses:
 
 ```
-dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o publish
 ```
-
-Then look for the snowflake in your tray. Double-click it for settings: snowfall, flake size, wind and gusts, how sticky the snow is,
-how deep it can get, and when to clear it. Right-click for pause, clear and start-with-Windows.
 
 ## How it works
 
