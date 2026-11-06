@@ -2,10 +2,10 @@ namespace Weather;
 
 /// <summary>
 /// A separate click-through layered window holding only the snow that rests on the taskbar.
-/// Its pixels are redrawn with the rest of the snow, but its *position* is moved directly whenever
-/// the taskbar moves (see <see cref="TaskbarWatcher"/>). Moving a window costs nothing and lands in
-/// the same compositor frame as the taskbar's own move, so the snow rides the taskbar without lag.
-/// The pile's base sits on the bottom row of this window.
+/// It is small (screen width × <see cref="Height"/>), so the snow thread can redraw it and move it
+/// in a single UpdateLayeredWindow call the instant the taskbar moves (see <see cref="TaskbarWatcher"/>):
+/// new pixels and new position always arrive together, so the snow never pokes out from behind a
+/// window for a frame. The pile's base sits on the bottom row of this window.
 /// </summary>
 internal sealed unsafe class GroundLayer : NativeWindow, IDisposable
 {
@@ -13,7 +13,6 @@ internal sealed unsafe class GroundLayer : NativeWindow, IDisposable
 
     readonly IntPtr _screenDC, _memDC;
     IntPtr _bmp, _defaultBmp;
-    volatile int _top = int.MinValue;
 
     public uint* Pixels { get; private set; }
     public int Width { get; private set; }
@@ -29,25 +28,12 @@ internal sealed unsafe class GroundLayer : NativeWindow, IDisposable
                             Native.WS_EX_TOPMOST | Native.WS_EX_NOACTIVATE),
         };
         CreateHandle(cp);
-        _top = groundY - Height;
         _screenDC = Native.GetDC(IntPtr.Zero);
         _memDC = Native.CreateCompatibleDC(_screenDC);
         Allocate(width);
-        Native.Present(Handle, _screenDC, _memDC, width, Height); // first present sets size
-        Native.SetWindowPos(Handle, Native.HWND_TOPMOST, 0, _top, 0, 0, Native.SWP_NOSIZE_ | Native.SWP_NOACTIVATE_);
+        PresentAt(groundY);
+        Native.SetWindowPos(Handle, Native.HWND_TOPMOST, 0, 0, 0, 0, 0x1 | 0x2 | Native.SWP_NOACTIVATE_);
         Native.ShowWindow(Handle, Native.SW_SHOWNOACTIVATE);
-    }
-
-    /// <summary>Put the pile's base at <paramref name="groundY"/>. Safe from any thread.</summary>
-    public void MoveTo(int groundY, bool async)
-    {
-        int top = groundY - Height;
-        if (top == _top) return;
-        _top = top;
-        const uint SWP_NOZORDER = 0x4; // keep its place just below the taskbar
-        uint flags = Native.SWP_NOSIZE_ | Native.SWP_NOACTIVATE_ | Native.SWP_NOOWNERZORDER_ | SWP_NOZORDER |
-                     (async ? Native.SWP_ASYNC_ : 0);
-        Native.SetWindowPos(Handle, IntPtr.Zero, 0, top, 0, 0, flags);
     }
 
     public void Allocate(int w)
@@ -67,7 +53,8 @@ internal sealed unsafe class GroundLayer : NativeWindow, IDisposable
 
     public void Clear() => new Span<uint>(Pixels, Width * Height).Clear();
 
-    public void Present() => Native.PresentInPlace(Handle, _screenDC, _memDC, Width, Height);
+    /// <summary>New pixels and new position in one atomic update: the pile's base at <paramref name="groundY"/>.</summary>
+    public void PresentAt(int groundY) => Native.Present(Handle, _screenDC, _memDC, Width, Height, 0, groundY - Height);
 
     public void Dispose()
     {

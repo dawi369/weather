@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 namespace Weather;
 
@@ -33,6 +33,20 @@ internal sealed unsafe class Engine
     {
         _thread = new Thread(Loop) { IsBackground = true, Name = "Snow", Priority = ThreadPriority.Highest };
         _thread.Start();
+        new Thread(WatchFullscreen) { IsBackground = true, Name = "Snow fullscreen watch" }.Start();
+    }
+
+    volatile bool _fullscreen;
+
+    /// <summary>Polls "is a full-screen app in front?" ten times a second, off the snow thread.</summary>
+    void WatchFullscreen()
+    {
+        while (!_stop)
+        {
+            try { _fullscreen = Native.ForegroundIsFullscreen(Native.PrimaryScreen(), _overlay.Handle); }
+            catch { /* never let this kill the app */ }
+            Thread.Sleep(100);
+        }
     }
 
     public void Stop()
@@ -72,21 +86,56 @@ internal sealed unsafe class Engine
         return wins.Count > 0 && wins[0].Zoomed ? wins[0].Hwnd : IntPtr.Zero;
     }
 
-    static void WaitUntil(Stopwatch clock, double t)
+    // Kept between frames so a taskbar move can be handled while we wait for the next frame.
+    Native.RECT _screen, _workArea;
+    int _groundY;
+    bool _groundLive; // the last frame drew the taskbar snow (not paused or hidden)
+
+    /// <summary>
+    /// Wait until <paramref name="t"/>. If the taskbar moves meanwhile, redraw and move the taskbar
+    /// snow right away (pixels and position together), instead of a frame later.
+    /// </summary>
+    void WaitUntil(Stopwatch clock, double t)
     {
         while (true)
         {
             double left = t - clock.Elapsed.TotalSeconds;
             if (left <= 0) return;
-            if (left > 0.0015) Thread.Sleep(1);
+            if (left > 0.0015)
+            {
+                if (_taskbar.Moved.WaitOne(1)) RefreshGround();
+            }
             else Thread.SpinWait(50);
         }
     }
 
+    void RefreshGround()
+    {
+        if (!_groundLive) return;
+        int g = _taskbar.GroundY(_screen, _workArea);
+        if (g == _groundY) return;
+        _groundY = g;
+        _sim.RefreshGround(g);
+        Renderer.DrawGround(_ground.Pixels, _ground.Width, GroundLayer.Height, _sim);
+        _ground.PresentAt(g);
+        Trace("hook", g);
+    }
+
+    // Set WEATHER_TRACE=<file> to log every taskbar-snow position change with a QPC timestamp.
+    readonly string? _trace = Environment.GetEnvironmentVariable("WEATHER_TRACE");
+    int _lastTraced = int.MinValue;
+    void Trace(string src, int g)
+    {
+        if (_trace == null || g == _lastTraced) return;
+        _lastTraced = g;
+        File.AppendAllText(_trace, $"{Stopwatch.GetTimestamp()} {src} {g}\n");
+    }
+
     void Blank()
     {
+        _groundLive = false;
         _overlay.Clear(); _overlay.Present();
-        _ground.Clear(); _ground.Present();
+        _ground.Clear(); _ground.PresentAt(_groundY);
     }
 
     void Loop()
@@ -95,12 +144,13 @@ internal sealed unsafe class Engine
         try
         {
             var clock = Stopwatch.StartNew();
-            double last = 0, lastSlow = -10, lastFullscreenCheck = -10;
+            double last = 0, lastSlow = -10;
             double period = 1.0 / Native.RefreshRate();
             double workEma = 0.002;
             bool blank = false, fullscreen = false;
             var screen = Native.PrimaryScreen();
             var workArea = Native.WorkArea();
+            _screen = screen; _workArea = workArea; _groundY = workArea.Bottom;
 
             while (!_stop)
             {
@@ -138,13 +188,9 @@ internal sealed unsafe class Engine
                     Native.PlaceBelow(_overlay.Handle, _ground.Handle);
                     Native.KeepTopmost(_overlay.Handle);
                 }
-
-                // Checked often so snow vanishes the moment something goes full screen.
-                if (now - lastFullscreenCheck > 0.1)
-                {
-                    lastFullscreenCheck = now;
-                    fullscreen = _settings.HideInFullscreen && Native.ForegroundIsFullscreen(screen, _overlay.Handle);
-                }
+                // Checked on its own thread (see WatchFullscreen): asking the shell can block for a
+                // long time while Explorer is busy, e.g. animating the taskbar.
+                fullscreen = _settings.HideInFullscreen && _fullscreen;
 
                 if (_settings.Paused || fullscreen)
                 {
@@ -161,7 +207,7 @@ internal sealed unsafe class Engine
 
                 var wins = _tracker.Enumerate(screen);
                 int groundY = _taskbar.GroundY(screen, workArea);
-                _ground.MoveTo(groundY, async: true); // normally already done by the taskbar hook
+                _screen = screen; _workArea = workArea; _groundY = groundY;
 
                 // A maximized window in front counts as full screen: show nothing, but keep
                 // tracking windows so its hidden snow falls when it is minimized or restored.
@@ -178,7 +224,9 @@ internal sealed unsafe class Engine
                 Renderer.Draw(_overlay.Pixels, _overlay.Width, _overlay.Height, _sim);
                 Renderer.DrawGround(_ground.Pixels, _ground.Width, GroundLayer.Height, _sim);
                 _overlay.Present();
-                _ground.Present();
+                _ground.PresentAt(groundY);
+                _groundLive = true;
+                Trace("frame", groundY);
 
                 double done = clock.Elapsed.TotalSeconds;
                 double work = done - now;

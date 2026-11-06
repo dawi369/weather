@@ -23,7 +23,7 @@ internal sealed class TrayApp : ApplicationContext
         _overlay = new Overlay();
         var screen = Native.PrimaryScreen();
         _ground = new GroundLayer(screen.Width, Native.WorkArea().Bottom);
-        _taskbar = new TaskbarWatcher(_ground); // hook runs on this (UI) thread
+        _taskbar = new TaskbarWatcher(); // hook runs on this (UI) thread
         _refresh.Tick += (_, _) => _taskbar.Refresh();
         _refresh.Start();
         _engine = new Engine(_overlay, _ground, _taskbar, _settings);

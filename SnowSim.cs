@@ -376,10 +376,20 @@ internal sealed class SnowSim
     }
 
     /// <summary>Work out which parts of each pile are hidden behind windows higher in the Z-order.</summary>
-    void ComputeVisibility()
+    /// <summary>
+    /// The taskbar moved mid-frame: re-place the taskbar snow and work out again which windows hide
+    /// it, using the window positions from this frame. Cheap; called the instant the taskbar moves.
+    /// </summary>
+    public void RefreshGround(int groundY)
+    {
+        SyncGround(groundY);
+        ComputeVisibility(groundOnly: true);
+    }
+
+    void ComputeVisibility(bool groundOnly = false)
     {
         // The ground (bottom of the screen / top of the taskbar) is the back layer: every window is in front of it.
-        for (int k = 0; k <= Z.Count; k++)
+        for (int k = groundOnly ? Z.Count : 0; k <= Z.Count; k++)
         {
             var s = k == Z.Count ? Ground : Z[k];
             if (s.Cells == 0) continue;
@@ -840,6 +850,36 @@ internal sealed class SnowSim
         return -1;
     }
 
+    /// <summary>The neighbour's snow surface (screen y) at a joined end, or NaN if not joined.</summary>
+    public static float NeighbourTop(Surface s, bool left)
+    {
+        var n = left ? s.LinkL : s.LinkR;
+        if (n == null) return float.NaN;
+        int e = left ? n.LinkREdge : n.LinkLEdge;
+        if (e < 0 || e >= n.Cells) return float.NaN;
+        // Averaged over a few columns in from its end, so one tall column can't throw it off.
+        int inward = left ? -1 : 1;
+        float sum = 0; int cnt = 0;
+        for (int k = 0; k < 4; k++)
+        {
+            int i = e + inward * k;
+            if (i < 0 || i >= n.Cells) break;
+            sum += n.H[i]; cnt++;
+        }
+        return n.AnchorY - sum / cnt;
+    }
+
+    /// <summary>
+    /// How tall our snow may stand right at a joined end: level with the neighbour's snow plus a
+    /// little. If the neighbour's window is higher (a wall beside us), that is no limit at all.
+    /// </summary>
+    float JoinedEdgeHeight(Surface s, bool left)
+    {
+        float top = NeighbourTop(s, left);
+        if (float.IsNaN(top)) return float.PositiveInfinity;
+        return MathF.Max(0f, s.AnchorY - top) + EdgeLimit * 0.5f;
+    }
+
     /// <summary>
     /// Snow going over one end of a window: onto the neighbouring window if one is joined there,
     /// otherwise into that edge's spill, to drop off in chunks.
@@ -850,7 +890,18 @@ internal sealed class SnowSim
         if (n != null)
         {
             int e = left ? n.LinkREdge : n.LinkLEdge;
-            if (e >= 0 && e < n.Cells) { n.H[e] = MathF.Min(MaxPile, n.H[e] + vol / Cell); return; }
+            if (e >= 0 && e < n.Cells)
+            {
+                // Spread over the neighbour's first few columns (more at the join, less further in),
+                // never piled into one column.
+                int inward = left ? -1 : 1;
+                for (int k = 0; k < 6; k++)
+                {
+                    int i = Math.Clamp(e + inward * k, 0, n.Cells - 1);
+                    n.H[i] = MathF.Min(MaxPile, n.H[i] + vol / Cell * (6 - k) / 21f);
+                }
+                return;
+            }
         }
         if (left) s.SpillL += vol; else s.SpillR += vol;
     }
@@ -1026,9 +1077,10 @@ internal sealed class SnowSim
         float edgeR = EdgeLimit * s.EdgeVarR * (wf > 0 ? 1f + 0.7f * wf : 1f + 0.45f * wf);
         float slopeL = Repose * 1.4f * (1.3f - 0.3f * s.EdgeVarR);
         float slopeR = Repose * 1.4f * (1.3f - 0.3f * s.EdgeVarL);
-        // A joined end (window right next to us) has no edge to fall off: no shoulder there.
-        if (s.LinkL != null) edgeL = float.PositiveInfinity;
-        if (s.LinkR != null) edgeR = float.PositiveInfinity;
+        // A joined end (window right next to us): the snow can only stand a little above the
+        // neighbour's snow surface there; anything higher slides over onto the neighbour.
+        if (s.LinkL != null) edgeL = JoinedEdgeHeight(s, left: true);
+        if (s.LinkR != null) edgeR = JoinedEdgeHeight(s, left: false);
         for (int d = 0; d < n / 2; d++)
         {
             int l = d, r = n - 1 - d;

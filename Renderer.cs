@@ -50,12 +50,20 @@ internal static unsafe class Renderer
 
             if (!s.IsGround)
             {
-                // Rounded snow edges instead of a hard vertical cut at the window corner
-                // (not at an end joined to a neighbouring window: the blanket carries on there).
-                float de = MathF.Min(s.LinkL != null ? float.PositiveInfinity : cx,
-                                     s.LinkR != null ? float.PositiveInfinity : s.Right - s.Left - cx);
-                float rad = MathF.Min(hh, 10f);
-                if (de < rad) { float q = de / rad; hh *= MathF.Sqrt(q * (2f - q)); }
+                // Rounded snow edges instead of a hard vertical cut at the window corner. At an end
+                // joined to a neighbouring window it only rounds down to the neighbour's snow level,
+                // so the blanket carries on across the join without a step or a cliff.
+                float dl = cx, dr = s.Right - s.Left - cx;
+                bool leftNear = dl <= dr;
+                float de = leftNear ? dl : dr;
+                float floorH = 0f;
+                float nTop = SnowSim.NeighbourTop(s, leftNear);
+                if (!float.IsNaN(nTop)) floorH = MathF.Max(0f, s.AnchorY - nTop);
+                if (hh > floorH)
+                {
+                    float rad = MathF.Min(hh - floorH, 10f);
+                    if (de < rad) { float q = de / rad; hh = floorH + (hh - floorH) * MathF.Sqrt(q * (2f - q)); }
+                }
             }
             if (hh < 0.08f) continue;
 
@@ -99,7 +107,9 @@ internal static unsafe class Renderer
         int ea = a.LinkREdge, eb = b.LinkLEdge;
         float xa = a.Left + (ea + 1) * Cell, xb = b.Left + eb * Cell;
         if (xb - xa < 0.5f) return;
-        float topA = a.AnchorY - HeightAt(a, (ea + 0.5f) * Cell), topB = b.AnchorY - HeightAt(b, (eb + 0.5f) * Cell);
+        // Both piles round off to the lower of the two snow surfaces at the join; the bridge sits there too.
+        float rawA = a.AnchorY - HeightAt(a, (ea + 0.5f) * Cell), rawB = b.AnchorY - HeightAt(b, (eb + 0.5f) * Cell);
+        float topA = MathF.Max(rawA, rawB), topB = topA;
         if (a.AnchorY - topA < 0.5f && b.AnchorY - topB < 0.5f) return;
         int x0 = Math.Max((int)MathF.Floor(xa), 0), x1 = Math.Min((int)MathF.Ceiling(xb), w);
         for (int x = x0; x < x1; x++)

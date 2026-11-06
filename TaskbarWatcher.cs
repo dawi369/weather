@@ -1,23 +1,24 @@
 namespace Weather;
 
 /// <summary>
-/// Knows where the top of the taskbar is, and moves the <see cref="GroundLayer"/> the instant the
-/// taskbar moves: a WinEvent hook reports every taskbar location change (e.g. each step of an
-/// auto-hide slide) and the snow window is moved right in that callback, with no frame in between.
+/// Knows where the top of the taskbar is, and reports the instant it moves: a WinEvent hook fires on
+/// every taskbar location change (each step of an auto-hide slide) and signals <see cref="Moved"/>,
+/// which wakes the snow thread to redraw and move the taskbar snow right away.
 /// Create on the UI thread; the hook callback runs there.
 /// </summary>
 internal sealed class TaskbarWatcher : IDisposable
 {
-    readonly GroundLayer _layer;
     readonly Native.WinEventProc _proc; // keep alive
+
+    /// <summary>Signalled the instant the taskbar moves; the snow thread waits on it.</summary>
+    public readonly AutoResetEvent Moved = new(false);
     IntPtr _hook, _hwnd;
     uint _hookedPid;
 
     public IntPtr Hwnd => _hwnd;
 
-    public TaskbarWatcher(GroundLayer layer)
+    public TaskbarWatcher()
     {
-        _layer = layer;
         _proc = OnEvent;
         Rehook();
     }
@@ -37,8 +38,7 @@ internal sealed class TaskbarWatcher : IDisposable
     void OnEvent(IntPtr hook, uint ev, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
     {
         if (hwnd != _hwnd || idObject != 0) return;
-        var screen = Native.PrimaryScreen();
-        _layer.MoveTo(GroundY(screen, Native.WorkArea()), async: false);
+        Moved.Set(); // wake the snow thread: it redraws and moves the taskbar snow in one step
     }
 
     /// <summary>

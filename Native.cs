@@ -156,9 +156,9 @@ internal static class Native
     public static void KeepTopmost(IntPtr h) =>
         SetWindowPos(h, new IntPtr(-1), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS);
 
-    public static void Present(IntPtr hwnd, IntPtr screenDC, IntPtr memDC, int w, int h)
+    public static void Present(IntPtr hwnd, IntPtr screenDC, IntPtr memDC, int w, int h, int x = 0, int y = 0)
     {
-        var dst = new POINT();
+        var dst = new POINT { X = x, Y = y };
         var src = new POINT();
         var size = new SIZE { cx = w, cy = h };
         var blend = new BLENDFUNCTION { BlendOp = 0, SourceConstantAlpha = 255, AlphaFormat = 1 };
