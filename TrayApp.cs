@@ -43,6 +43,7 @@ internal sealed class TrayApp : ApplicationContext
         startup.Click += (_, _) => { SetStartWithWindows(!startup.Checked); startup.Checked = StartsWithWindows(); };
         menu.Items.Add(startup);
         menu.Items.Add(new ToolStripMenuItem("Check for updates…", null, async (_, _) => await CheckForUpdatesAsync(interactive: true)));
+        menu.Items.Add(new ToolStripMenuItem("Open diagnostics", null, (_, _) => OpenDiagnostics()));
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => Exit()));
 
         _icon = new NotifyIcon
@@ -112,6 +113,19 @@ internal sealed class TrayApp : ApplicationContext
         {
             _checkingForUpdates = false;
         }
+    }
+
+    /// <summary>Open diagnostics.txt (what the app sees: screen, taskbar, scaling) in the default text editor.</summary>
+    static void OpenDiagnostics()
+    {
+        string file = Path.Combine(Settings.Folder, "diagnostics.txt");
+        if (!File.Exists(file))
+        {
+            Ask("No diagnostics yet: give it a second after the snow starts.", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(file) { UseShellExecute = true }); }
+        catch (Exception ex) { Ask($"Couldn't open {file}:\n{ex.Message}", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
 
     /// <summary>A message box that comes to the front (the tray app has no window of its own).</summary>

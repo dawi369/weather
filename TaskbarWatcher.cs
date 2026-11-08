@@ -45,7 +45,16 @@ internal sealed class TaskbarWatcher : IDisposable
     /// Where snow at the bottom rests: the top of a bottom taskbar (wherever it is in its auto-hide
     /// slide), otherwise the bottom of the work area. Safe from any thread.
     /// </summary>
+    /// <summary>User nudge from settings (px, + = lower), for PCs where the detected top is off.</summary>
+    public volatile int Offset;
+
     public int GroundY(Native.RECT screen, Native.RECT workArea)
+    {
+        int g = DetectedGroundY(screen, workArea) + Offset;
+        return Math.Clamp(g, screen.Top + screen.Height / 2, screen.Bottom);
+    }
+
+    int DetectedGroundY(Native.RECT screen, Native.RECT workArea)
     {
         IntPtr h = _hwnd;
         if (h == IntPtr.Zero || !Native.IsWindow(h)) return workArea.Bottom;

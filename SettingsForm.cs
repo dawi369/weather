@@ -41,13 +41,15 @@ internal sealed class SettingsForm : Form
         Slider(grid, "Max depth", 6, 200, () => _s.MaxDepth, v => _s.MaxDepth = v, v => $"{v}px");
         Slider(grid, "Fling sensitivity", 0, 100, () => _s.FlingSensitivity, v => _s.FlingSensitivity = v, v => $"{v}%");
         Check(grid, "Snow builds up on the taskbar", () => _s.TaskbarSnow, v => _s.TaskbarSnow = v);
+        Slider(grid, "Taskbar snow height", -120, 120, () => -_s.TaskbarSnowOffset, v => _s.TaskbarSnowOffset = -v,
+               v => v == 0 ? "auto" : v > 0 ? $"{v}px higher" : $"{-v}px lower");
 
         Section(grid, "Clearing");
         Slider(grid, "Auto-clear every", 0, 300, () => _s.WipeSeconds, v => _s.WipeSeconds = v,
                v => v == 0 ? "never" : v < 60 ? $"{v}s" : $"{v / 60}m {v % 60:00}s");
 
         Section(grid, "When to hide the snow");
-        Check(grid, "When a maximized window is in front", () => _s.HideWhenMaximized, v => _s.HideWhenMaximized = v);
+        Check(grid, "When windows fill the screen (maximized or split screen)", () => _s.HideWhenMaximized, v => _s.HideWhenMaximized = v);
         Check(grid, "In full-screen apps and games", () => _s.HideInFullscreen, v => _s.HideInFullscreen = v);
 
         Section(grid, "Updates");
@@ -62,7 +64,9 @@ internal sealed class SettingsForm : Form
         grid.RowCount++;
 
         var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 14, 0, 0) };
-        var close = new Button { Text = "Close", AutoSize = true, DialogResult = DialogResult.OK };
+        // Shown modeless, so a DialogResult button would not close the window: close it explicitly.
+        var close = new Button { Text = "Close", AutoSize = true };
+        close.Click += (_, _) => Close();
         var reset = new Button { Text = "Reset to defaults", AutoSize = true };
         reset.Click += (_, _) => { _s.ResetToDefaults(); foreach (var r in _refreshers) r(); Changed(); };
         buttons.Controls.Add(close);

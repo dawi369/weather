@@ -86,6 +86,30 @@ internal sealed unsafe class Engine
         return wins.Count > 0 && wins[0].Zoomed ? wins[0].Hwnd : IntPtr.Zero;
     }
 
+    /// <summary>
+    /// Windows that together fill the screen count as full screen too: two apps snapped side by
+    /// side, four quarters, or any mix that leaves (almost) no desktop showing. Checked on a coarse
+    /// grid over the work area. Returns the window the hidden snow should settle on.
+    /// </summary>
+    static IntPtr FilledByWindows(List<WinInfo> wins, Native.RECT work)
+    {
+        if (wins.Count == 0) return IntPtr.Zero;
+        const int Cols = 48, Rows = 27;
+        int covered = 0;
+        float cw = work.Width / (float)Cols, ch = work.Height / (float)Rows;
+        for (int r = 0; r < Rows; r++)
+        for (int c = 0; c < Cols; c++)
+        {
+            float x = work.Left + (c + 0.5f) * cw, y = work.Top + (r + 0.5f) * ch;
+            foreach (var w in wins)
+                if (x >= w.Rect.Left && x < w.Rect.Right && y >= w.Rect.Top && y < w.Rect.Bottom) { covered++; break; }
+        }
+        if (covered < Cols * Rows * 0.97f) return IntPtr.Zero;
+        IntPtr fg = Native.GetForegroundWindow();
+        foreach (var w in wins) if (w.Hwnd == fg) return fg;
+        return wins[0].Hwnd;
+    }
+
     // Kept between frames so a taskbar move can be handled while we wait for the next frame.
     Native.RECT _screen, _workArea;
     int _groundY;
@@ -146,7 +170,7 @@ internal sealed unsafe class Engine
     {
         try
         {
-            string d = $"{Native.Describe(_taskbar.Hwnd)} groundY={_groundY} version={Updater.Version}";
+            string d = $"{Native.Describe(_taskbar.Hwnd)} groundY={_groundY} heightNudge={_settings.TaskbarSnowOffset} version={Updater.Version}";
             if (d == _lastDiag) return;
             _lastDiag = d;
             Directory.CreateDirectory(Settings.Folder);
@@ -231,12 +255,18 @@ internal sealed unsafe class Engine
                 if (Interlocked.Exchange(ref _wipeRequested, 0) == 1) _sim.Wipe();
 
                 var wins = _tracker.Enumerate(screen);
+                _taskbar.Offset = _settings.TaskbarSnowOffset;
                 int groundY = _taskbar.GroundY(screen, workArea);
                 _screen = screen; _workArea = workArea; _groundY = groundY;
 
                 // A maximized window in front counts as full screen: show nothing, but keep
                 // tracking windows so its hidden snow falls when it is minimized or restored.
-                IntPtr roof = _settings.HideWhenMaximized ? MaximizedInFront(wins) : IntPtr.Zero;
+                IntPtr roof = IntPtr.Zero;
+                if (_settings.HideWhenMaximized)
+                {
+                    roof = MaximizedInFront(wins);
+                    if (roof == IntPtr.Zero) roof = FilledByWindows(wins, workArea); // split screen etc.
+                }
                 if (roof != IntPtr.Zero)
                 {
                     _sim.UpdateHidden(dt, wins, screen.Width, screen.Height, groundY, roof, _settings);

@@ -22,6 +22,7 @@ internal sealed class Settings
     public int MaxDepth { get; set; } = 30;            // px: deepest snow can pile on a window
     public int FlingSensitivity { get; set; } = 50;    // % how easily a quick move throws snow
     public bool TaskbarSnow { get; set; } = true;
+    public int TaskbarSnowOffset { get; set; } = 0;    // px: nudge the taskbar snow down (+) or up (-) on PCs where it sits off
 
     // Clearing
     public int WipeSeconds { get; set; } = 0;          // 0 = never
