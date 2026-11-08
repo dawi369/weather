@@ -12,10 +12,28 @@ internal static unsafe class Renderer
         foreach (var s in sim.Z)
             if (s.LinkR != null) DrawBridge(px, w, h, s, s.LinkR);
 
+        // Falling snow is in the background: it's only drawn where no window is, so it never covers
+        // an app's content. (Snow resting on top of windows sits above their top edges, so it stays.)
+        _occN = 0;
+        foreach (var s in sim.Z)
+        {
+            if (_occN == _occ.Length) Array.Resize(ref _occ, _occN * 2);
+            _occ[_occN++] = (s.Left, s.Top, s.Right, s.Bottom);
+        }
+
         var ps = sim.Particles;
         for (int n = 0; n < sim.Count; n++)
         {
             ref var p = ref ps[n];
+            // Landed flakes sit on the snow on top of a window, outside its body: never clipped.
+            if (p.Life > 0) _clip = false;
+            else
+            {
+                float ext = p.Shape is > 0 and < 255 ? 9f : p.R + 3f;
+                int cover = Coverage(p.X - ext, p.Y - ext, p.X + ext, p.Y + ext);
+                if (cover == 2) continue; // entirely behind a window
+                _clip = cover == 1;       // straddles a window's edge: clip per pixel
+            }
             switch (p.Kind)
             {
                 case PKind.Flake:
@@ -48,9 +66,40 @@ internal static unsafe class Renderer
                 default: Disc(px, w, h, p.X, p.Y, p.R, p.Alpha, 250, 252, 255, soft: true); break;
             }
         }
+        _clip = false;
     }
 
     static float _time;
+
+    // Window rectangles this frame, and whether the particle being drawn needs per-pixel clipping.
+    static (int L, int T, int R, int B)[] _occ = new (int, int, int, int)[64];
+    static int _occN;
+    static bool _clip;
+
+    /// <summary>0 = box clear of all windows, 2 = box entirely inside one window, 1 = partly covered.</summary>
+    static int Coverage(float x0, float y0, float x1, float y1)
+    {
+        bool touched = false;
+        for (int i = 0; i < _occN; i++)
+        {
+            var o = _occ[i];
+            if (x1 <= o.L || x0 >= o.R || y1 <= o.T || y0 >= o.B) continue;
+            if (x0 >= o.L && x1 <= o.R && y0 >= o.T && y1 <= o.B) return 2;
+            touched = true;
+        }
+        return touched ? 1 : 0;
+    }
+
+    /// <summary>Is this pixel inside any window (so background snow mustn't be drawn there)?</summary>
+    static bool Covered(int x, int y)
+    {
+        for (int i = 0; i < _occN; i++)
+        {
+            var o = _occ[i];
+            if (x >= o.L && x < o.R && y >= o.T && y < o.B) return true;
+        }
+        return false;
+    }
 
     /// <summary>
     /// A snowflake crystal: a pre-rendered six-armed dendrite at the flake's size and spin, tilting
@@ -81,6 +130,7 @@ internal static unsafe class Renderer
                 if ((uint)x >= (uint)w) continue;
                 float m = mask[r0 * size + mx] * (1f - t) + mask[r1 * size + mx] * t;
                 if (m < 0.03f) continue;
+                if (_clip && Covered(x, y)) continue; // behind a window
                 Blend(row + x, 242f, 247f, 255f, MathF.Min(1f, alpha * m * 0.88f));
             }
         }
@@ -355,6 +405,7 @@ internal static unsafe class Renderer
                 float d = MathF.Sqrt(dx * dx + dy * dy);
                 float cov = soft ? (rr + 0.6f - d) / 1.2f : rr + 0.5f - d;
                 if (cov <= 0) continue;
+                if (_clip && Covered(x, y)) continue; // behind a window
                 if (cov > 1) cov = 1;
                 float a = alpha * cov * scale;
                 if (!soft)

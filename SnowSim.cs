@@ -439,7 +439,7 @@ internal sealed class SnowSim
                     for (int i = i0; i <= i1; i++)
                         if (o.Bottom > s.ClipY[i]) s.ClipY[i] = o.Bottom;
             }
-            if (s.IsGround) Array.Copy(s.Vis, s.Shield, s.Cells); // under any window, nothing lands
+            if (s.IsGround) ShelterGround(s); // under any window, nothing lands
             else ComputeShield(s);
         }
     }
@@ -449,6 +449,22 @@ internal sealed class SnowSim
     /// behind): that window's top is higher and catches the falling snow first, so none lands on
     /// this one there. Snow that is already here stays.
     /// </summary>
+    /// <summary>
+    /// The snow falls behind the windows, so a window shelters the strip of taskbar beneath it:
+    /// nothing lands on the taskbar anywhere a window is above it.
+    /// </summary>
+    void ShelterGround(Surface g)
+    {
+        Array.Clear(g.Shield);
+        foreach (var o in Z)
+        {
+            if (o.Top >= g.AnchorY || o.Right <= g.Left || o.Left >= g.Right) continue;
+            int i0 = Math.Max(0, (int)MathF.Ceiling((o.Left - g.Left - Cell * 0.5f) / Cell));
+            int i1 = Math.Min(g.Cells - 1, (int)MathF.Ceiling((o.Right - g.Left - Cell * 0.5f) / Cell) - 1);
+            if (i0 <= i1) Array.Fill(g.Shield, (byte)1, i0, i1 - i0 + 1);
+        }
+    }
+
     void ComputeShield(Surface s)
     {
         Array.Clear(s.Shield);
@@ -919,7 +935,7 @@ internal sealed class SnowSim
         {
             // Behind a window? The flake fell in front of that window and just leaves the screen.
             int i = Math.Min((int)(x / Cell), Ground.Cells - 1);
-            if (Ground.Vis[i] != 0 && y1 >= Ground.PileTop(i) && y1 >= Ground.ClipY[i]) { hit = Ground; return true; }
+            if (Ground.Vis[i] != 0 && Ground.Shield[i] == 0 && y1 >= Ground.PileTop(i) && y1 >= Ground.ClipY[i]) { hit = Ground; return true; }
         }
         hit = null;
         return false;
