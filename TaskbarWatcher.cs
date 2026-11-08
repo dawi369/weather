@@ -60,6 +60,16 @@ internal sealed class TaskbarWatcher : IDisposable
         if (h == IntPtr.Zero || !Native.IsWindow(h)) return workArea.Bottom;
         if (!Native.IsWindowVisible(h) || !Native.VisibleBounds(h, out var r)) return workArea.Bottom;
         if (r.Width < screen.Width / 2 || r.Top <= screen.Height / 2 || r.Top >= screen.Bottom) return workArea.Bottom;
+
+        // The Windows 11 taskbar is drawn 48 units tall. On some PCs (touch-capable laptops) its
+        // window is taller than that, e.g. sized for the touch-optimized taskbar: 108px at 150%
+        // when the bar itself is 72px. The extra is invisible space above the bar, so measure the
+        // bar from the bottom of the window instead of trusting the window's top. (Moves with an
+        // auto-hide slide, since the whole window moves.)
+        uint dpi = Native.GetDpiForWindow(h);
+        int drawn = (int)MathF.Round(48f * (dpi > 0 ? dpi : 96) / 96f);
+        if (r.Height > drawn + 8)
+            return Math.Min(screen.Bottom, r.Bottom - drawn);
         return Math.Min(workArea.Bottom, r.Top);
     }
 
