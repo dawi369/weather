@@ -127,13 +127,49 @@ internal static class Native
     public static bool IsCloaked(IntPtr h) =>
         DwmGetWindowAttribute(h, DWMWA_CLOAKED, out int v, sizeof(int)) == 0 && v != 0;
 
-    public static RECT PrimaryScreen() => new() { Left = 0, Top = 0, Right = GetSystemMetrics(0), Bottom = GetSystemMetrics(1) };
+    [StructLayout(LayoutKind.Sequential)]
+    struct MONITORINFO { public int cbSize; public RECT rcMonitor, rcWork; public uint dwFlags; }
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
+    [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr mon, ref MONITORINFO mi);
 
-    public static RECT WorkArea()
+    /// <summary>
+    /// Primary monitor bounds and work area in real (physical) pixels. GetMonitorInfo is per-monitor
+    /// DPI aware; the older GetSystemMetrics/SystemParametersInfo can return values scaled for the
+    /// DPI Windows started with, which is wrong when display scaling has changed since sign-in
+    /// (common on laptops) and put the taskbar snow too high.
+    /// </summary>
+    static bool PrimaryMonitor(out RECT monitor, out RECT work)
     {
-        var r = new RECT();
-        if (!SystemParametersInfo(SPI_GETWORKAREA, 0, ref r, 0)) r = PrimaryScreen();
-        return r;
+        var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+        IntPtr mon = MonitorFromPoint(new POINT(), 1 /* MONITOR_DEFAULTTOPRIMARY */);
+        if (mon != IntPtr.Zero && GetMonitorInfo(mon, ref mi)) { monitor = mi.rcMonitor; work = mi.rcWork; return true; }
+        monitor = new RECT { Right = GetSystemMetrics(0), Bottom = GetSystemMetrics(1) };
+        work = monitor;
+        SystemParametersInfo(SPI_GETWORKAREA, 0, ref work, 0);
+        return false;
+    }
+
+    public static RECT PrimaryScreen() { PrimaryMonitor(out var m, out _); return m; }
+
+    public static RECT WorkArea() { PrimaryMonitor(out _, out var w); return w; }
+
+    [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
+    [DllImport("user32.dll")] static extern IntPtr GetThreadDpiAwarenessContext();
+    [DllImport("user32.dll")] static extern int GetAwarenessFromDpiAwarenessContext(IntPtr ctx);
+
+    /// <summary>One-line summary of what the app sees, for the diagnostics file.</summary>
+    public static string Describe(IntPtr taskbar)
+    {
+        PrimaryMonitor(out var m, out var w);
+        var spi = new RECT();
+        SystemParametersInfo(SPI_GETWORKAREA, 0, ref spi, 0);
+        string tb = "none";
+        if (taskbar != IntPtr.Zero && VisibleBounds(taskbar, out var d) && GetWindowRect(taskbar, out var g))
+            tb = $"dwm=({d.Left},{d.Top},{d.Right},{d.Bottom}) rect=({g.Left},{g.Top},{g.Right},{g.Bottom}) dpi={GetDpiForWindow(taskbar)} topmost={IsTopmost(taskbar)}";
+        int awareness = GetAwarenessFromDpiAwarenessContext(GetThreadDpiAwarenessContext());
+        return $"monitor=({m.Left},{m.Top},{m.Right},{m.Bottom}) work=({w.Left},{w.Top},{w.Right},{w.Bottom}) " +
+               $"spiWork=({spi.Left},{spi.Top},{spi.Right},{spi.Bottom}) metrics={GetSystemMetrics(0)}x{GetSystemMetrics(1)} " +
+               $"taskbar[{tb}] dpiAwareness={awareness}";
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string cls, string? title);

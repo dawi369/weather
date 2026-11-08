@@ -24,6 +24,11 @@ Double-click the tray snowflake for settings: snowfall, flake size, wind and gus
 how deep it can get, and when to clear it. Right-click for pause, clear and start-with-Windows.
 
 A fresh exe is built automatically on every push to `main` (see [Releases](https://github.com/dawi369/weather/releases)).
+The app checks for a newer build once a day and asks before updating itself (turn it off in settings,
+or use **Check for updates…** in the tray menu).
+
+If the snow sits in the wrong place on a PC, `%APPDATA%\WeatherSnow\diagnostics.txt` shows the screen,
+taskbar and scaling values the app is working with.
 
 ## Building it yourself
 

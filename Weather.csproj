@@ -14,4 +14,9 @@
     <Optimize Condition="'$(Configuration)'=='Release'">true</Optimize>
   </PropertyGroup>
 
+  <!-- Set by the GitHub workflow (-p:OfficialBuild=true). Only official builds update themselves. -->
+  <ItemGroup Condition="'$(OfficialBuild)' == 'true'">
+    <AssemblyMetadata Include="OfficialBuild" Value="true" />
+  </ItemGroup>
+
 </Project>

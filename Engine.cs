@@ -131,6 +131,30 @@ internal sealed unsafe class Engine
         File.AppendAllText(_trace, $"{Stopwatch.GetTimestamp()} {src} {g}\n");
     }
 
+    string? _lastDiag;
+
+    // Set WEATHER_DUMP=<file> to write the pile state every 2s (debugging the physics).
+    readonly string? _dump = Environment.GetEnvironmentVariable("WEATHER_DUMP");
+    double _lastDump;
+
+    /// <summary>
+    /// Keep %APPDATA%\WeatherSnow\diagnostics.txt describing what the app sees (screen, work area,
+    /// taskbar, DPI, where the taskbar snow sits), rewritten whenever that changes. Handy when the snow
+    /// sits in the wrong place on someone else's PC.
+    /// </summary>
+    void WriteDiagnostics()
+    {
+        try
+        {
+            string d = $"{Native.Describe(_taskbar.Hwnd)} groundY={_groundY} version={Updater.Version}";
+            if (d == _lastDiag) return;
+            _lastDiag = d;
+            Directory.CreateDirectory(Settings.Folder);
+            File.WriteAllText(Path.Combine(Settings.Folder, "diagnostics.txt"), $"{DateTime.Now:u}\n{d.Replace(" ", "\n")}\n");
+        }
+        catch { /* diagnostics are best effort */ }
+    }
+
     void Blank()
     {
         _groundLive = false;
@@ -179,6 +203,7 @@ internal sealed unsafe class Engine
                         Native.PlaceBelow(_ground.Handle, _taskbar.Hwnd);
                         Native.PlaceBelow(_overlay.Handle, _ground.Handle);
                     }
+                    WriteDiagnostics();
                 }
 
                 // Never drop out of the always-on-top group, or activating any window would cover the snow.
@@ -226,6 +251,7 @@ internal sealed unsafe class Engine
                 _overlay.Present();
                 _ground.PresentAt(groundY);
                 _groundLive = true;
+                if (_dump != null && now - _lastDump > 2) { _lastDump = now; try { File.WriteAllText(_dump, _sim.DebugDump()); } catch { } }
                 Trace("frame", groundY);
 
                 double done = clock.Elapsed.TotalSeconds;

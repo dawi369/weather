@@ -30,6 +30,10 @@ internal sealed class Settings
     public bool HideWhenMaximized { get; set; } = true;
     public bool HideInFullscreen { get; set; } = true;
 
+    // Updates
+    public bool CheckForUpdates { get; set; } = true;
+    public DateTime LastUpdateCheckUtc { get; set; }
+
     [JsonIgnore] public volatile bool Paused;
 
     public void ResetToDefaults()
@@ -39,8 +43,10 @@ internal sealed class Settings
             if (p.CanWrite) p.SetValue(this, p.GetValue(d));
     }
 
-    static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WeatherSnow", "settings.json");
+    public static readonly string Folder = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WeatherSnow");
+
+    static readonly string FilePath = Path.Combine(Folder, "settings.json");
 
     static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 

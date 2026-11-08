@@ -5,6 +5,12 @@ internal enum PKind : byte { Flake, Clump, Powder }
 internal struct Particle
 {
     public float X, Y, VX, VY, R, Alpha, Phase, Freq, Sway, Vol, Depth;
+    public float Rot, RotSpeed;  // crystals: orientation and spin
+    public float Life, Fade;     // landed flakes: time left / total, while they rest on the snow and fade out
+    public float RelX;           // landed flakes: x relative to the surface they rest on
+    public IntPtr Surf;          // landed flakes: that surface's window (Zero = the taskbar snow)
+    public float NoLand;         // chunks: seconds before they may land (no instant re-landing)
+    public byte Shape;           // flakes: 0 soft dot, 1..Crystals.Designs a crystal, 255 a fluffy aggregate
     public PKind Kind;
 }
 
@@ -22,6 +28,7 @@ internal sealed class Surface
     /// <summary>Y the pile sits on. For windows touching the top of the screen ("clamped") the pile hangs down from y=0 instead.</summary>
     public float AnchorY;
     public float PrevAnchorY; // AnchorY last frame
+    public int PrevLeft, PrevRight, PrevBottom; // window edges last frame
 
     public float VX, VY;               // smoothed window velocity, px/s
     public float AX, AY;               // smoothed window acceleration, px/s²
@@ -46,6 +53,8 @@ internal sealed class Surface
     public float[] H = Array.Empty<float>();      // snow depth per column, px
     public byte[] Vis = Array.Empty<byte>();      // 0 = this column is covered by a higher window
     public float[] ClipY = Array.Empty<float>();  // a higher window's bottom edge cutting into the pile
+    public byte[] Shield = Array.Empty<byte>();   // 1 = another window's body sits right above: no new snow lands here
+    public byte[] Block = Array.Empty<byte>();    // ground only: 1 = a window's body stands here (snow can't flow in)
 
     public float PileTop(int i) => Clamped ? AnchorY + H[i] : AnchorY - H[i];
 
@@ -62,6 +71,8 @@ internal sealed class Surface
         Cells = cells;
         Vis = new byte[cells];
         Array.Fill(Vis, (byte)1);
+        Shield = new byte[cells];
+        Block = new byte[cells];
         ClipY = new float[cells];
         Array.Fill(ClipY, float.NegativeInfinity);
         W = new float[cells]; Array.Fill(W, 1f);
@@ -141,6 +152,7 @@ internal sealed class SnowSim
     public float Wind;
 
     float _time, _spawnAcc, _wipeAcc;
+    public float Time => _time;
 
     float R() => (float)_rng.NextDouble();
     float R(float a, float b) => a + (b - a) * R();
@@ -156,6 +168,7 @@ internal sealed class SnowSim
         SyncWindows(wins, dt);
         SyncGround(groundY);
         foreach (var s in Z) HandOff(s);
+        PushGround();
         ComputeVisibility();
         foreach (var s in Z)
             if (!s.Clamped) Collide(s);
@@ -167,6 +180,22 @@ internal sealed class SnowSim
         foreach (var s in Z) FlowAcross(s);
         Settle(Ground, dt);
         WipeTimer(dt);
+    }
+
+    /// <summary>Debug: one line per surface with its joins and tallest column (for WEATHER_DUMP).</summary>
+    public string DebugDump()
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var s in Z.Append(Ground))
+        {
+            int arg = 0;
+            for (int i = 1; i < s.Cells; i++) if (s.H[i] > s.H[arg]) arg = i;
+            string Who(Surface? o) => o == null ? "-" : o.IsGround ? "ground" : $"{o.Left},{o.Top}";
+            sb.AppendLine($"{(s.IsGround ? "ground" : $"win {s.Left},{s.Top}-{s.Right},{s.Bottom}")} anchor={s.AnchorY} " +
+                          $"max H={(s.Cells > 0 ? s.H[arg] : 0):F1} at x={s.Left + arg * Cell} vis={(s.Cells > 0 ? s.Vis[arg] : 0)} " +
+                          $"linkL={Who(s.LinkL)}@{s.LinkLEdge} linkR={Who(s.LinkR)}@{s.LinkREdge} spill={s.SpillL:F0}/{s.SpillR:F0}");
+        }
+        return sb.ToString();
     }
 
     void WipeTimer(float dt)
@@ -246,6 +275,7 @@ internal sealed class SnowSim
                 s = new Surface { Hwnd = w.Hwnd, Seed = _rng.Next(1, int.MaxValue / 2), EdgeVarL = R(0.65f, 1.35f), EdgeVarR = R(0.65f, 1.35f) };
                 Place(s, w);
                 s.PrevAnchorY = s.AnchorY;
+                s.PrevLeft = s.Left; s.PrevRight = s.Right; s.PrevBottom = s.Bottom;
                 s.Reshape(CellsFor(s.Right - s.Left), 0);
                 _windows[w.Hwnd] = s;
             }
@@ -279,6 +309,7 @@ internal sealed class SnowSim
     void Track(Surface s, in WinInfo w, float dt)
     {
         s.PrevAnchorY = s.AnchorY;
+        s.PrevLeft = s.Left; s.PrevRight = s.Right; s.PrevBottom = s.Bottom;
         var r = w.Rect;
         int newW = r.Width;
 
@@ -408,6 +439,135 @@ internal sealed class SnowSim
                     for (int i = i0; i <= i1; i++)
                         if (o.Bottom > s.ClipY[i]) s.ClipY[i] = o.Bottom;
             }
+            if (s.IsGround) Array.Copy(s.Vis, s.Shield, s.Cells); // under any window, nothing lands
+            else ComputeShield(s);
+        }
+    }
+
+    /// <summary>
+    /// A window's top edge is "shielded" wherever it lies under another window (in front or
+    /// behind): that window's top is higher and catches the falling snow first, so none lands on
+    /// this one there. Snow that is already here stays.
+    /// </summary>
+    void ComputeShield(Surface s)
+    {
+        Array.Clear(s.Shield);
+        if (s.Clamped) return;
+        foreach (var o in Z)
+        {
+            if (o == s || o.Right <= s.Left || o.Left >= s.Right) continue;
+            if (!(o.Top < s.AnchorY - 1f && o.Bottom >= s.AnchorY)) continue;
+            int i0 = Math.Max(0, (int)MathF.Ceiling((o.Left - s.Left - Cell * 0.5f) / Cell));
+            int i1 = Math.Min(s.Cells - 1, (int)MathF.Ceiling((o.Right - s.Left - Cell * 0.5f) / Cell) - 1);
+            if (i0 <= i1) Array.Fill(s.Shield, (byte)1, i0, i1 - i0 + 1);
+        }
+    }
+
+    // ───────────────────────────── windows vs. the taskbar snow ─────────────────────────────
+
+    /// <summary>
+    /// Windows are solid against the snow resting on the taskbar. Where a window's bottom edge comes
+    /// down into it, that snow falls through the taskbar (it's gone). Where a window slides sideways,
+    /// its leading side bulldozes the snow in front of it, so you can push piles around with a window
+    /// lowered onto the taskbar. Snow can't flow in under a window's body.
+    /// </summary>
+    void PushGround()
+    {
+        var g = Ground;
+        if (g.Cells == 0) return;
+        Array.Clear(g.Block);
+        if (!GroundOn) return;
+        float reach = g.AnchorY - MaxDepth * 1.3f; // a bottom edge above this can't touch the snow
+        foreach (var s in Z)
+        {
+            if (s.Bottom <= reach || s.Right <= 0 || s.Left >= g.Right) continue;
+            float cap = MathF.Max(0f, g.AnchorY - s.Bottom); // snow that fits under the window's bottom edge
+            int i0 = Math.Max(0, (int)MathF.Ceiling((s.Left - Cell * 0.5f) / Cell));
+            int i1 = Math.Min(g.Cells - 1, (int)MathF.Ceiling((s.Right - Cell * 0.5f) / Cell) - 1);
+            if (i0 > i1) continue;
+
+            // Last frame's footprint, if the window was low enough to touch the snow then.
+            bool wasLow = s.PrevBottom > reach;
+            int p0 = (int)MathF.Ceiling((s.PrevLeft - Cell * 0.5f) / Cell);
+            int p1 = (int)MathF.Ceiling((s.PrevRight - Cell * 0.5f) / Cell) - 1;
+
+            float pushL = 0, pushR = 0, fall = 0;
+            int fallFrom = -1;
+            for (int i = i0; i <= i1; i++)
+            {
+                if (cap < 0.5f) g.Block[i] = 1;
+                float ex = g.H[i] - cap;
+                if (ex <= 0) continue;
+                g.H[i] = cap;
+                bool covered = wasLow && i >= p0 && i <= p1;
+                if (!covered && i > p1 && s.Right > s.PrevRight) pushR += ex;      // swept up by the right side
+                else if (!covered && i < p0 && s.Left < s.PrevLeft) pushL += ex;   // swept up by the left side
+                else
+                {
+                    // The bottom edge came down on it: it drops through the taskbar, a few columns at a time.
+                    if (fallFrom < 0) fallFrom = i;
+                    fall += ex;
+                    if (i - fallFrom >= 2) { FallThrough(g, fallFrom, i, cap, fall); fall = 0; fallFrom = -1; }
+                }
+            }
+            if (fallFrom >= 0) FallThrough(g, fallFrom, i1, cap, fall);
+            Sweep(g, s, i1 + 1, +1, pushR);
+            Sweep(g, s, i0 - 1, -1, pushL);
+        }
+    }
+
+    /// <summary>
+    /// Snow a window's bottom edge pressed down on: it drops as loose chunks into the taskbar, which
+    /// is in front of the snow, so they vanish behind it. They carry no volume: nothing re-settles.
+    /// </summary>
+    void FallThrough(Surface g, int from, int to, float cap, float amount)
+    {
+        float vol = amount * Cell;
+        if (vol < 0.3f) return;
+        int n = Math.Clamp((int)(vol / 6f), 1, 4);
+        for (int k = 0; k < n; k++)
+        {
+            float x = g.Left + R(from, to + 1) * Cell;
+            float y = g.AnchorY - cap - R(0f, MathF.Min(amount / (to - from + 1), 14f));
+            AddClump(x, y, 0f, R(-25f, 25f), R(30f, 120f), PKind.Clump);
+            Particles[Count - 1].R = Math.Clamp(MathF.Sqrt(vol / n / MathF.PI), 0.9f, 3.2f);
+        }
+    }
+
+    /// <summary>
+    /// Snow scooped up by a window's side as it slides along the taskbar: some of it heaps up
+    /// against the side, the rest splashes up and out ahead of the window, more the faster it moves,
+    /// and lands back on the taskbar.
+    /// </summary>
+    void Sweep(Surface g, Surface s, int start, int dir, float amount)
+    {
+        if (amount <= 0) return;
+        float speed = MathF.Abs(s.VX);
+        float thrown = amount * Math.Clamp(speed / 700f, 0.25f, 0.9f);
+        PushInto(g, start, dir, amount - thrown);
+
+        float vol = thrown * Cell;
+        float edgeX = g.Left + (start + (dir > 0 ? 0 : 1)) * Cell;
+        int n = Math.Clamp((int)(vol / 3f), 1, 24);
+        for (int k = 0; k < n; k++)
+        {
+            float v = vol / n;
+            float lift = R(60f, 180f) + speed * R(0.15f, 0.5f);
+            AddClump(edgeX + dir * R(0f, 6f), g.AnchorY - R(1f, 10f), v,
+                     dir * (speed * R(0.7f, 1.3f) + R(20f, 120f)), -lift,
+                     v < 2.5f ? PKind.Powder : PKind.Clump);
+        }
+    }
+
+    /// <summary>Heap bulldozed snow just outside a window's side, mostly against it.</summary>
+    static void PushInto(Surface g, int start, int dir, float amount)
+    {
+        if (amount <= 0) return;
+        for (int k = 0; k < 4; k++)
+        {
+            int i = start + dir * k;
+            if (i < 0 || i >= g.Cells) return; // pushed off the screen edge
+            g.H[i] = MathF.Min(MaxPile, g.H[i] + amount * (4 - k) / 10f);
         }
     }
 
@@ -567,6 +727,22 @@ internal sealed class SnowSim
 
     float SpawnRate() => SpawnPerSec * ScreenW / 1920f;
 
+    float TurbAmp => 14f + Gustiness * 22f; // px/s of swirl
+
+    /// <summary>
+    /// A smooth, slowly changing swirl field over the screen (a few crossed waves). Flakes near each
+    /// other get nearly the same push, so they drift and eddy together instead of each wobbling alone.
+    /// </summary>
+    void Turbulence(float x, float y, out float tx, out float ty)
+    {
+        float t = _time;
+        float a = MathF.Sin(x * 0.0061f + t * 0.37f) + MathF.Sin(y * 0.0083f - t * 0.29f + 1.7f);
+        float b = MathF.Sin(y * 0.0057f + t * 0.41f + 0.6f) + MathF.Sin(x * 0.0049f - t * 0.23f + 2.3f);
+        float c = MathF.Sin((x + y) * 0.0035f + t * 0.19f);
+        tx = a * 0.6f + c * 0.4f;
+        ty = b * 0.6f - c * 0.3f;
+    }
+
     void Spawn(float dt)
     {
         _spawnAcc += SpawnRate() * dt;
@@ -578,19 +754,37 @@ internal sealed class SnowSim
             p = default;
             p.Kind = PKind.Flake;
             float d = R();
-            d *= d; // most flakes small and far away
+            d *= d; // depth: most flakes are far away (small, faint, slow across the screen)
             p.Depth = d;
-            p.R = (0.8f + d * 2.4f) * FlakeScale;
-            float depth = d;
-            p.VY = 38f + 70f * depth + R(0f, 14f);
-            p.Alpha = FlakeAlpha * (0.43f + 0.57f * depth); // mostly faint, only near flakes are bright
-            p.Sway = R(6f, 26f);
-            p.Freq = R(0.5f, 1.6f);
+            p.R = (0.5f + d * 2.7f) * FlakeScale; // far: tiny specks; near: big soft flakes
+            p.Vol = MathF.PI * p.R * p.R * FlakeDeposit;
+            // Real snow falls at about 1 m/s whatever its size; distant flakes just cross the screen
+            // more slowly (parallax).
+            p.VY = (24f + 74f * d) * R(0.85f, 1.15f);
+            p.Alpha = FlakeAlpha * (0.32f + 0.68f * d);
+            p.Sway = R(5f, 18f);
+            p.Freq = R(0.6f, 1.8f);
             p.Phase = R(0f, 6.283f);
+            if (d > 0.5f)
+            {
+                float roll = R();
+                if (d > 0.7f && roll < 0.55f)
+                {
+                    // A crystal close enough to see its arms (only the nearest flakes, ~1 in 10).
+                    // Plate-like crystals fall slower and flutter and spin as they go.
+                    p.Shape = (byte)(1 + _rng.Next(Crystals.Designs));
+                    p.R = (3.4f + 4.6f * (d - 0.7f) / 0.3f) * R(0.85f, 1.15f) * FlakeScale;
+                    p.VY *= 0.78f;
+                    p.Sway *= 1.6f;
+                    p.Rot = R(0f, 6.283f);
+                    p.RotSpeed = R(-1.4f, 1.4f);
+                    p.Alpha = MathF.Min(1f, p.Alpha * 1.1f);
+                }
+                else if (roll < 0.7f) p.Shape = 255; // a fluffy aggregate of several crystals
+            }
             float drift = Wind * (ScreenH / p.VY) * 0.5f;
             p.X = R(-60f, ScreenW + 60f) - drift;
             p.Y = -R(4f, 30f);
-            p.Vol = MathF.PI * p.R * p.R * FlakeDeposit;
         }
     }
 
@@ -606,6 +800,7 @@ internal sealed class SnowSim
         p.Alpha = kind == PKind.Powder ? 0.75f : 0.97f;
         p.Phase = R(0f, 6.283f);
         p.Freq = R(2f, 5f);
+        p.NoLand = 0.15f;
     }
 
     void StepParticles(float dt)
@@ -615,18 +810,40 @@ internal sealed class SnowSim
         {
             ref var p = ref Particles[n];
             float y0 = p.Y;
+
+            // A flake that has landed rests on the snow (riding along if its window moves) and fades out.
+            if (p.Life > 0)
+            {
+                p.Life -= dt;
+                Surface? on = p.Surf == IntPtr.Zero ? Ground : _windows.TryGetValue(p.Surf, out var ws) ? ws : null;
+                if (p.Life <= 0 || on == null || on.Cells == 0) { Particles[n] = Particles[--Count]; continue; }
+                p.X = on.Left + p.RelX;
+                int ci = Math.Clamp((int)(p.RelX / Cell), 0, on.Cells - 1);
+                if (on.Vis[ci] == 0 || on.Clamped) { Particles[n] = Particles[--Count]; continue; }
+                p.Y = on.PileTop(ci) - p.R * 0.25f;
+                n++;
+                continue;
+            }
+
             switch (p.Kind)
             {
                 case PKind.Flake:
                 {
+                    // Wind plus shared air currents (neighbouring flakes swirl together, the way real
+                    // snow does), plus each flake's own flutter. Everything is scaled by depth, so
+                    // distant snow drifts less across the screen.
                     float depth = p.Depth;
-                    float fw = wind * (0.55f + 0.45f * depth);
-                    p.X += (fw + MathF.Sin(_time * p.Freq + p.Phase) * p.Sway) * dt;
-                    p.Y += p.VY * dt;
+                    float par = 0.45f + 0.55f * depth;
+                    Turbulence(p.X, p.Y + depth * 400f, out float tx, out float ty);
+                    float flutter = MathF.Sin(_time * p.Freq + p.Phase) * p.Sway;
+                    p.X += (wind * (0.55f + 0.45f * depth) + (tx * TurbAmp + flutter) * par) * dt;
+                    p.Y += (p.VY + ty * TurbAmp * 0.35f * par) * dt;
+                    p.Rot += p.RotSpeed * dt;
                     break;
                 }
                 case PKind.Clump:
                 {
+                    p.NoLand -= dt;
                     float drag = 1.6f / (0.5f + p.R * 0.35f);
                     p.VY += Gravity * dt;
                     p.VX += (wind - p.VX) * drag * dt;
@@ -636,6 +853,7 @@ internal sealed class SnowSim
                     break;
                 }
                 default: // powder
+                    p.NoLand -= dt;
                     p.VY += 220f * dt;
                     p.VX += (wind - p.VX) * 2.8f * dt;
                     p.VY -= p.VY * 2.2f * dt;
@@ -645,13 +863,25 @@ internal sealed class SnowSim
             }
 
             bool remove = false;
-            // Blown spray (Vol 0) is only for show and never settles.
-            if (p.Y > y0 && (p.Vol > 0 || p.Kind == PKind.Flake) && TryLand(p.X, y0, p.Y, p.Kind == PKind.Flake, out var hit))
+            bool flake = p.Kind == PKind.Flake;
+            // Blown spray (Vol 0) is only for show and never settles; chunks can't land the instant
+            // they're released (or they'd sit there looking like a stuck ball).
+            if (p.Y > y0 && (p.Vol > 0 || flake) && (flake || p.NoLand <= 0) && TryLand(p.X, y0, p.Y, flake, out var hit))
             {
                 // Only a share of flakes hit a window edge, so scale them up to keep the buildup rate.
-                float vol = p.Kind == PKind.Flake && !hit!.IsGround ? p.Vol / CatchChance : p.Vol;
-                if (p.Kind == PKind.Flake) vol *= WeightAt(hit!, p.X); // uneven buildup: mounds and hollows
+                float vol = flake && !hit!.IsGround ? p.Vol / CatchChance : p.Vol;
+                if (flake) vol *= WeightAt(hit!, p.X); // uneven buildup: mounds and hollows
                 Deposit(hit!, p.X, vol);
+                if (flake && hit!.Cells > 0)
+                {
+                    // Don't vanish on touchdown: rest on the snow for a moment and fade out.
+                    p.Fade = p.Life = p.Shape is > 0 and < 255 ? R(0.9f, 1.6f) : R(0.45f, 1.0f);
+                    p.Surf = hit.IsGround ? IntPtr.Zero : hit.Hwnd;
+                    p.RelX = p.X - hit.Left;
+                    p.RotSpeed *= 0.1f;
+                    n++;
+                    continue;
+                }
                 remove = true;
             }
             else if (p.Y > ScreenH + 40 || p.Y < -4000 || p.X < -2500 || p.X > ScreenW + 2500)
@@ -674,7 +904,7 @@ internal sealed class SnowSim
         {
             if (x < s.Left || x >= s.Right) continue;
             int i = Math.Min((int)((x - s.Left) / Cell), s.Cells - 1);
-            if (s.Vis[i] == 0) continue;
+            if (s.Vis[i] == 0 || s.Shield[i] != 0) continue; // hidden, or another window's body is in the way
             float top = s.PileTop(i);
             if (y1 < top) continue;
             bool crosses = s.Clamped
@@ -823,7 +1053,7 @@ internal sealed class SnowSim
             int bestEa = 0, bestEb = 0;
             foreach (var b in Z)
             {
-                if (b == a || b.Clamped || b.Cells < 4 || b.LinkL != null) continue;
+                if (b == a || b.Clamped || b.Cells < 4 || b.LinkL != null || b.LinkR == a || a.LinkL == b) continue; // no join loops
                 if (MathF.Abs(a.AnchorY - b.AnchorY) > LinkMaxStep) continue;
                 // Where the two blankets could meet: the ends touching, b's left side standing in front
                 // of a's snow, or a's right side standing in front of b's snow.
@@ -882,7 +1112,7 @@ internal sealed class SnowSim
     {
         float top = NeighbourTop(s, left);
         if (float.IsNaN(top)) return float.PositiveInfinity;
-        return MathF.Max(0f, s.AnchorY - top) + EdgeLimit * 0.5f;
+        return MathF.Min(MaxDepth, MathF.Max(0f, s.AnchorY - top) + EdgeLimit * 0.5f);
     }
 
     /// <summary>
@@ -1005,7 +1235,9 @@ internal sealed class SnowSim
             {
                 float part = m * (k == 1 ? 0.5f : k == 2 ? 0.3f : 0.2f);
                 int to = i + dir * k;
-                if (to >= 0 && to < n) h[to] += part; else lost += part;
+                if (to >= 0 && to < n && s.IsGround && s.Block[to] != 0) h[i] += part; // banks up against a window's side
+                else if (to >= 0 && to < n) h[to] += part;
+                else lost += part;
             }
             if (lost > 0 && !s.IsGround) OverEdge(s, left: dir < 0, lost * Cell * 0.6f);
         }
@@ -1044,7 +1276,7 @@ internal sealed class SnowSim
                 if (h[i] > cap)
                 {
                     float ex = h[i] - cap; h[i] = cap;
-                    if (i > 0) h[i - 1] += ex; else OverEdge(s, left: true, ex * Cell);
+                    if (i > 0) h[i - 1] += ex; else if (s.LinkL == null) OverEdge(s, left: true, ex * Cell); // at a join it just compacts
                 }
             }
             for (int i = split + 1; i < n; i++)
@@ -1053,7 +1285,7 @@ internal sealed class SnowSim
                 if (h[i] > cap)
                 {
                     float ex = h[i] - cap; h[i] = cap;
-                    if (i < n - 1) h[i + 1] += ex; else OverEdge(s, left: false, ex * Cell);
+                    if (i < n - 1) h[i + 1] += ex; else if (s.LinkR == null) OverEdge(s, left: false, ex * Cell);
                 }
             }
         }
@@ -1071,6 +1303,7 @@ internal sealed class SnowSim
         float diff = MathF.Min(0.45f, Settling * dt);
         for (int i = 0; i < n - 1; i++)
         {
+            if (s.IsGround && (s.Block[i] | s.Block[i + 1]) != 0) continue;
             float t = (h[i] - h[i + 1]) * diff * 0.5f;
             h[i] -= t;
             h[i + 1] += t;
@@ -1114,10 +1347,15 @@ internal sealed class SnowSim
 
         Drip(s, dt, left: true);
         Drip(s, dt, left: false);
+
+        // Safety net: whatever happens elsewhere, no pile ever grows into a spike.
+        float hardCap = MaxDepth * 1.4f;
+        for (int i = 0; i < n; i++) if (h[i] > hardCap) h[i] = hardCap;
     }
 
     void Relax(Surface s, int i)
     {
+        if (s.IsGround && (s.Block[i] | s.Block[i + 1]) != 0) return; // a window's side is a wall
         var h = s.H;
         float rep = Repose * 0.5f * (s.Rp[i] + s.Rp[i + 1]);
         float d = h[i] - h[i + 1];

@@ -50,6 +50,17 @@ internal sealed class SettingsForm : Form
         Check(grid, "When a maximized window is in front", () => _s.HideWhenMaximized, v => _s.HideWhenMaximized = v);
         Check(grid, "In full-screen apps and games", () => _s.HideInFullscreen, v => _s.HideInFullscreen = v);
 
+        Section(grid, "Updates");
+        Check(grid, "Check for a new version once a day", () => _s.CheckForUpdates, v => _s.CheckForUpdates = v);
+        var version = new Label
+        {
+            AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(8, 2, 0, 0),
+            Text = Updater.BuildCommit is string c ? $"Version: build {c[..7]}" : "Version: local build (doesn't update itself)",
+        };
+        grid.Controls.Add(version, 0, grid.RowCount);
+        grid.SetColumnSpan(version, 3);
+        grid.RowCount++;
+
         var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 14, 0, 0) };
         var close = new Button { Text = "Close", AutoSize = true, DialogResult = DialogResult.OK };
         var reset = new Button { Text = "Reset to defaults", AutoSize = true };

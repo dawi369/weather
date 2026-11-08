@@ -18,8 +18,12 @@ internal sealed class TrayApp : ApplicationContext
     readonly NotifyIcon _icon;
     readonly ToolStripMenuItem _pauseItem;
 
-    public TrayApp()
+    readonly System.Windows.Forms.Timer _updateTimer = new() { Interval = 60_000 };
+    bool _checkingForUpdates;
+
+    public TrayApp(bool afterUpdate = false)
     {
+        Updater.CleanUpOldVersion();
         _overlay = new Overlay();
         var screen = Native.PrimaryScreen();
         _ground = new GroundLayer(screen.Width, Native.WorkArea().Bottom);
@@ -38,6 +42,7 @@ internal sealed class TrayApp : ApplicationContext
         var startup = new ToolStripMenuItem("Start with Windows") { Checked = StartsWithWindows() };
         startup.Click += (_, _) => { SetStartWithWindows(!startup.Checked); startup.Checked = StartsWithWindows(); };
         menu.Items.Add(startup);
+        menu.Items.Add(new ToolStripMenuItem("Check for updates…", null, async (_, _) => await CheckForUpdatesAsync(interactive: true)));
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => Exit()));
 
         _icon = new NotifyIcon
@@ -48,6 +53,74 @@ internal sealed class TrayApp : ApplicationContext
             ContextMenuStrip = menu,
         };
         _icon.DoubleClick += (_, _) => ShowSettings();
+
+        if (afterUpdate)
+            _icon.ShowBalloonTip(4000, "Weather updated", "You're on the newest version.", ToolTipIcon.Info);
+
+        // First look a minute after starting, then every 10 minutes see whether a day has passed.
+        _updateTimer.Tick += async (_, _) =>
+        {
+            _updateTimer.Interval = 10 * 60_000;
+            if (_settings.CheckForUpdates && DateTime.UtcNow - _settings.LastUpdateCheckUtc >= TimeSpan.FromHours(24))
+                await CheckForUpdatesAsync(interactive: false);
+        };
+        _updateTimer.Start();
+    }
+
+    /// <summary>
+    /// Ask GitHub whether a newer build exists; if so, offer to install it. Automatic checks stay
+    /// silent unless there is an update; a check from the menu always reports back.
+    /// </summary>
+    async Task CheckForUpdatesAsync(bool interactive)
+    {
+        if (_checkingForUpdates) return;
+        _checkingForUpdates = true;
+        try
+        {
+            if (!Updater.CanSelfUpdate)
+            {
+                if (interactive)
+                    Ask("This copy of Weather was built on this PC, not downloaded from GitHub, so it can't update itself.",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            _settings.LastUpdateCheckUtc = DateTime.UtcNow;
+            _settings.Save();
+            var latest = await Updater.GetLatestAsync();
+            if (latest == null || !Updater.IsNewer(latest))
+            {
+                if (interactive) Ask("You have the latest version of Weather.", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            string when = latest.Published == DateTimeOffset.MinValue ? "" : $" (from {latest.Published.LocalDateTime:d MMM yyyy})";
+            if (Ask($"A new version of Weather is available{when}.\n\nUpdate now? The snow will restart in a few seconds.",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+
+            interactive = true; // they said yes: from here on, report any problem
+            _icon.ShowBalloonTip(3000, "Weather", "Downloading the update…", ToolTipIcon.Info);
+            await Updater.InstallAsync(latest);
+            Exit(); // the new version is starting and waits for us to finish
+        }
+        catch (Exception ex)
+        {
+            if (interactive) Ask($"Couldn't check for updates:\n{ex.Message}", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        finally
+        {
+            _checkingForUpdates = false;
+        }
+    }
+
+    /// <summary>A message box that comes to the front (the tray app has no window of its own).</summary>
+    static DialogResult Ask(string text, MessageBoxButtons buttons, MessageBoxIcon icon)
+    {
+        using var owner = new Form { TopMost = true, ShowInTaskbar = false, StartPosition = FormStartPosition.CenterScreen, Size = new Size(1, 1), Opacity = 0 };
+        owner.Show();
+        owner.Activate();
+        return MessageBox.Show(owner, text, "Weather", buttons, icon);
     }
 
     SettingsForm? _settingsForm;
@@ -70,6 +143,7 @@ internal sealed class TrayApp : ApplicationContext
     {
         _engine.Stop();
         _refresh.Stop();
+        _updateTimer.Stop();
         _taskbar.Dispose();
         _icon.Visible = false;
         _icon.Dispose();
