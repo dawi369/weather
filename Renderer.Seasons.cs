@@ -8,9 +8,9 @@ internal static unsafe partial class Renderer
 {
     // ───────────────────────────── piles of leaves and petals ─────────────────────────────
 
-    static readonly float[] LeafR = { 178, 214, 232, 222, 198, 132 };
-    static readonly float[] LeafG = { 34, 72, 128, 168, 184, 82 };
-    static readonly float[] LeafB = { 34, 32, 30, 44, 64, 42 };
+    static readonly float[] LeafR = { 178, 214, 232, 236, 240, 168 };
+    static readonly float[] LeafG = { 34, 72, 128, 168, 196, 72 };
+    static readonly float[] LeafB = { 34, 32, 30, 44, 60, 40 };
 
     /// <summary>A heap of leaves: a mottle of warm colours in leaf-sized patches, darker deeper in.</summary>
     static void LeafColor(uint* p, float depth, float shade, float cov, int xr, int seed)
@@ -331,7 +331,7 @@ internal static unsafe partial class Renderer
             float slid = 15f * (1f - MathF.Exp(-0.6f * sp.Age));
             for (float t = 0; t < slid; t += 2f)
                 Disc(px, w, h, x + MathF.Sin(t * 0.3f + sp.Seed) * 1.2f, y - t, r * (0.38f - 0.012f * t), a * 0.55f, 240, 245, 252, soft: true);
-            Disc(px, w, h, x, y, r + 2f, a * 0.16f, 90, 105, 135, soft: true);
+            Disc(px, w, h, x, y, r + 2f, a * 0.25f, 255, 255, 255, soft: true);
             Disc(px, w, h, x, y, r * 0.72f, a * 0.95f, 246, 249, 255, soft: true);
             for (int k = 0; k < 7; k++)
             {

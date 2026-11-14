@@ -129,9 +129,9 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
         var sim = _engine.Sim;
         var pad = new Padding(0, 3, 0, 3);
 
-        _menu.Items.Add(new ToolStripLabel($"{AppInfo.Name}  ·  {SeasonInfo.Name(season)}", Glyph(season))
+        _menu.Items.Add(new ToolStripLabel(AppInfo.Name, Glyph(season))
         {
-            Font = Theme.Font(10.5f, FontStyle.Bold), ForeColor = Theme.Text, Padding = new Padding(0, 6, 0, 6),
+            Font = Theme.Font(9.5f), ForeColor = Theme.Sub, Padding = new Padding(0, 6, 0, 6),
         });
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()) { Font = Theme.Font(10f, FontStyle.Bold), Padding = pad });
@@ -153,7 +153,7 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
                 break;
         }
 
-        var choose = new ToolStripMenuItem("Season") { Padding = pad };
+        var choose = new ToolStripMenuItem($"Season: {SeasonInfo.Name(season)}") { Padding = pad };
         void Choice(string text, SeasonChoice c, Image? img)
         {
             var item = new ToolStripMenuItem(text, img, (_, _) => { _settings.Season = c; _settings.Save(); UpdateTrayIcon(); })

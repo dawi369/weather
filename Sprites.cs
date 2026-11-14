@@ -28,8 +28,8 @@ internal static class Sprites
         Color.FromArgb(214, 72, 32),    // scarlet-orange
         Color.FromArgb(232, 128, 30),   // orange
         Color.FromArgb(222, 168, 44),   // amber
-        Color.FromArgb(198, 184, 64),   // gold-green
-        Color.FromArgb(132, 82, 42),    // brown
+        Color.FromArgb(240, 196, 60),   // yellow
+        Color.FromArgb(168, 72, 40),    // russet
     };
     public static Color LeafColor(int i) => LeafPalette[i % LeafColors];
 
@@ -216,8 +216,8 @@ internal static class Sprites
 
     static readonly Color[] PetalPalette =
     {
-        Color.FromArgb(255, 214, 228),
-        Color.FromArgb(255, 186, 210),
+        Color.FromArgb(255, 196, 214),
+        Color.FromArgb(250, 160, 192),
         Color.FromArgb(255, 238, 244),
     };
     public static Color PetalColor(int i) => PetalPalette[i % PetalColors];
@@ -275,8 +275,8 @@ internal static class Sprites
                 g.DrawLine(stem, 0, -1f, 0, 5f);
                 using var seed = new SolidBrush(Color.FromArgb(170, 156, 126, 86));
                 g.FillEllipse(seed, -0.6f, 4.6f, 1.2f, 2.2f);
-                using var fluff = new Pen(Color.FromArgb(105, 255, 255, 255), 0.35f);
-                using var tip = new SolidBrush(Color.FromArgb(90, 255, 255, 255));
+                using var fluff = new Pen(Color.FromArgb(140, 255, 248, 228), 0.35f);
+                using var tip = new SolidBrush(Color.FromArgb(130, 255, 236, 190));
                 for (int i = 0; i < 17; i++)
                 {
                     float a = MathF.PI * 0.92f + i / 16f * MathF.PI * 1.16f;

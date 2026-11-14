@@ -759,7 +759,7 @@ internal sealed partial class SnowSim
         {
             f.Timer = R(2f, 6f);
             f.TX = Math.Clamp(f.X + R(-160f, 160f), 0f, ScreenW);
-            f.TY = Math.Clamp(f.Y + R(-90f, 90f), ScreenH * 0.35f, Ground.AnchorY - 6f);
+            f.TY = Math.Clamp(f.Y + R(-90f, 90f), ScreenH * 0.2f, Ground.AnchorY - 6f);
         }
         float dx = f.TX - f.X, dy = f.TY - f.Y;
         float k = gather ? 0.9f : 0.35f;
@@ -891,11 +891,11 @@ internal sealed partial class SnowSim
         _critterTimer -= dt;
         if (_critterTimer <= 0)
         {
-            _critterTimer = R(18f, 50f);
+            _critterTimer = R(10f, 35f);
             if (_butterfliesOn && daytime && (Season == Season.Summer || Season == Season.Spring && RainLevel < 0.1f))
             {
                 int have = Critters.Count(c => !c.Firefly && c.State != 2);
-                if (have < (Season == Season.Summer ? 3 : 2)) AddButterfly(0, 0, fromEdge: true);
+                if (have < (Season == Season.Summer ? 4 : 3)) AddButterfly(0, 0, fromEdge: true);
             }
         }
         // Butterflies shelter from the rain.
@@ -907,7 +907,7 @@ internal sealed partial class SnowSim
             int have = 0;
             foreach (var c in Critters) if (c.Firefly && c.State != 2) have++;
             int want = (int)(34 * MathF.Min(1.5f, Amount));
-            if (have < want && R() < dt * 2f)
+            if (have < want && R() < dt * 6f)
                 AddFirefly(R(0f, ScreenW), Ground.AnchorY - R(4f, 40f), R(240f, 600f));
         }
 

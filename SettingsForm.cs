@@ -354,7 +354,7 @@ internal sealed class SettingsForm : Form
         string build = Updater.BuildCommit is string c ? $"Build {c[..7]}. Keeps itself up to date." : "Built on this PC, so it doesn't update itself.";
         return new List<Control>
         {
-            new Hero(null, AppInfo.Name, "Four seasons for your desktop. Snow, blossom, summer meadows and autumn leaves that settle on your windows.", Sprites.AppIcon(S(128))),
+            new Hero(null, AppInfo.Name, "Snow, blossom, meadows and leaves that settle on your windows.", Sprites.AppIcon(S(128))),
             new Caption("Version"),
             Card(new Row(version, build, null, 0),
                  Toggle("Check for updates once a day", "New versions install quietly in a few seconds, after asking you.", () => _s.CheckForUpdates, v => _s.CheckForUpdates = v),

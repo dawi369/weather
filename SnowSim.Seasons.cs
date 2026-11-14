@@ -227,7 +227,7 @@ internal sealed partial class SnowSim
 
     void SpawnSeeds(float dt)
     {
-        _spawnAcc += SpawnRate() * 0.02f * Amount * dt;
+        _spawnAcc += SpawnRate() * 0.02f * Amount * (Night ? 0.25f : 1f) * dt; // few seeds about at night
         while (_spawnAcc >= 1f)
         {
             _spawnAcc -= 1f;
