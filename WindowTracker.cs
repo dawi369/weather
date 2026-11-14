@@ -10,8 +10,11 @@ internal sealed class WindowTracker
         "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "Windows.UI.Core.CoreWindow",
         "Xaml_WindowedPopupClass", "TopLevelWindowForOverflowXamlIsland", "NotifyIconOverflowWindow",
         "#32768", "tooltips_class32", "ForegroundStaging", "MultitaskingViewFrame",
-        "XamlExplorerHostIslandWindow", "WeatherSnowOverlay",
+        "XamlExplorerHostIslandWindow",
     };
+
+    // Tests: WEATHER_ONLY=title1|title2 tracks only those windows (so whatever else is open is ignored).
+    static readonly HashSet<string>? Only = Environment.GetEnvironmentVariable("WEATHER_ONLY") is { Length: > 0 } o ? new(o.Split('|')) : null;
 
     readonly List<WinInfo> _list = new();
     readonly Dictionary<IntPtr, bool> _classOk = new();
@@ -47,7 +50,7 @@ internal sealed class WindowTracker
         if (!_classOk.TryGetValue(h, out bool ok))
         {
             Native.GetWindowThreadProcessId(h, out uint pid);
-            ok = pid != _pid && !IgnoredClasses.Contains(Native.ClassName(h));
+            ok = pid != _pid && !IgnoredClasses.Contains(Native.ClassName(h)) && (Only == null || Only.Contains(Native.Title(h)));
             _classOk[h] = ok;
         }
         if (!ok || Native.IsCloaked(h)) return true;

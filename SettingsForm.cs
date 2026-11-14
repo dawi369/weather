@@ -1,124 +1,415 @@
 namespace Weather;
 
-/// <summary>Settings window. Every change applies to the running snow immediately and is saved.</summary>
+/// <summary>What the settings window can ask of the running app.</summary>
+internal interface IAppHost
+{
+    Season CurrentSeason { get; }
+    void Request(SeasonAction a);
+    void ClearNow();
+    bool StartsWithWindows { get; set; }
+    Task CheckForUpdatesAsync(bool interactive);
+    void OpenDiagnostics();
+}
+
+/// <summary>
+/// The settings window: a sidebar (General, the four seasons, About) and a page of cards. Every
+/// change applies to the running weather at once and is saved a moment later.
+/// </summary>
 internal sealed class SettingsForm : Form
 {
     readonly Settings _s;
-    readonly List<Action> _refreshers = new();
+    readonly IAppHost _host;
     readonly System.Windows.Forms.Timer _saveTimer = new() { Interval = 400 };
+    readonly Panel _side, _content;
+    readonly List<NavItem> _nav = new();
+    readonly float _k;
+    int _page;
 
-    public SettingsForm(Settings settings)
+    static readonly string[] Pages = { "General", "Winter", "Spring", "Summer", "Autumn", "About" };
+    static readonly Color AboutAccent = Color.FromArgb(160, 140, 255);
+
+    public SettingsForm(Settings settings, IAppHost host, int page = 0)
     {
         _s = settings;
-        Text = "Weather – snow settings";
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = MinimizeBox = false;
+        _host = host;
+        AutoScaleMode = AutoScaleMode.None;
+        _k = DeviceDpi / 96f;
+        Text = $"{AppInfo.Name} settings";
+        Icon = AppInfo.Icon;
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        AutoScaleMode = AutoScaleMode.Dpi;
-        Font = new Font("Segoe UI", 9.5f);
-        AutoSize = true;
-        AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        Padding = new Padding(14);
+        BackColor = Theme.Bg;
+        ForeColor = Theme.Text;
+        Font = Theme.Font(9.5f);
+        ClientSize = new Size(S(960), S(680));
+        MinimumSize = new Size(S(760), S(480));
+        KeyPreview = true;
         _saveTimer.Tick += (_, _) => { _saveTimer.Stop(); _s.Save(); };
 
-        var grid = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, Dock = DockStyle.Fill };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 300));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
+        _side = new Panel { Dock = DockStyle.Left, Width = S(232), BackColor = Theme.Sidebar };
+        _side.Paint += PaintSidebar;
+        _content = new DoubleBufferedPanel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Theme.Bg };
+        _content.Resize += (_, _) => StackPage(_content);
+        Controls.Add(_content);
+        Controls.Add(_side);
 
-        Section(grid, "Falling snow");
-        Slider(grid, "Snowfall", 0, 400, () => _s.SnowfallRate, v => _s.SnowfallRate = v, v => v == 0 ? "off" : $"{v}/s");
-        Slider(grid, "Flake size", 40, 250, () => _s.FlakeSize, v => _s.FlakeSize = v, v => $"{v}%");
-        Slider(grid, "Flake brightness", 10, 100, () => _s.FlakeBrightness, v => _s.FlakeBrightness = v, v => $"{v}%");
-        Slider(grid, "Wind", -150, 150, () => _s.Wind, v => _s.Wind = v,
-               v => v == 0 ? "calm" : v < 0 ? $"← {-v}" : $"{v} →");
-        Slider(grid, "Gusts", 0, 100, () => _s.Gusts, v => _s.Gusts = v, v => $"{v}%");
-
-        Section(grid, "Settled snow");
-        Slider(grid, "Buildup speed", 25, 400, () => _s.BuildupSpeed, v => _s.BuildupSpeed = v, v => $"{v}%");
-        Slider(grid, "Stickiness", 0, 100, () => _s.Stickiness, v => _s.Stickiness = v,
-               v => v < 25 ? $"{v}% runny" : v < 60 ? $"{v}%" : $"{v}% sticky");
-        Slider(grid, "Max depth", 6, 200, () => _s.MaxDepth, v => _s.MaxDepth = v, v => $"{v}px");
-        Slider(grid, "Fling sensitivity", 0, 100, () => _s.FlingSensitivity, v => _s.FlingSensitivity = v, v => $"{v}%");
-        Check(grid, "Snow builds up on the taskbar", () => _s.TaskbarSnow, v => _s.TaskbarSnow = v);
-        Slider(grid, "Taskbar snow height", -120, 120, () => -_s.TaskbarSnowOffset, v => _s.TaskbarSnowOffset = -v,
-               v => v == 0 ? "auto" : v > 0 ? $"{v}px higher" : $"{-v}px lower");
-
-        Section(grid, "Clearing");
-        Slider(grid, "Auto-clear every", 0, 300, () => _s.WipeSeconds, v => _s.WipeSeconds = v,
-               v => v == 0 ? "never" : v < 60 ? $"{v}s" : $"{v / 60}m {v % 60:00}s");
-
-        Section(grid, "When to hide the snow");
-        Check(grid, "When windows fill the screen (maximized or split screen)", () => _s.HideWhenMaximized, v => _s.HideWhenMaximized = v);
-        Check(grid, "In full-screen apps and games", () => _s.HideInFullscreen, v => _s.HideInFullscreen = v);
-
-        Section(grid, "Updates");
-        Check(grid, "Check for a new version once a day", () => _s.CheckForUpdates, v => _s.CheckForUpdates = v);
-        var version = new Label
+        int y = S(104);
+        for (int i = 0; i < Pages.Length; i++)
         {
-            AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(8, 2, 0, 0),
-            Text = Updater.BuildCommit is string c ? $"Version: build {c[..7]}" : "Version: local build (doesn't update itself)",
+            Image? icon = i is >= 1 and <= 4 ? Sprites.SeasonGlyph((Season)(i - 1), S(20), shadow: false)
+                        : i == 0 ? GearIcon(S(20)) : InfoIcon(S(20));
+            var item = new NavItem(Pages[i], icon) { Bounds = new Rectangle(0, y, _side.Width, S(42)), Accent = PageAccent(i) };
+            int idx = i;
+            item.Click += (_, _) => ShowPage(idx);
+            _side.Controls.Add(item);
+            _nav.Add(item);
+            y += S(44);
+        }
+
+        var pause = new PillButton(_s.Paused ? "Resume" : "Pause") { Accent = PageAccent(0) };
+        pause.Bounds = new Rectangle(S(20), 0, _side.Width - S(40), S(36));
+        pause.Anchor = AnchorStyles.Left | AnchorStyles.Bottom | AnchorStyles.Right;
+        pause.Click += (_, _) => { _s.Paused = !_s.Paused; pause.Text = _s.Paused ? "Resume" : "Pause"; };
+        _side.Controls.Add(pause);
+        _side.Resize += (_, _) => pause.Top = _side.Height - S(62);
+        pause.Top = ClientSize.Height - S(62);
+
+        KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Escape) Close();
+            if (e.Control && e.KeyCode == Keys.Tab) ShowPage((_page + (e.Shift ? Pages.Length - 1 : 1)) % Pages.Length);
         };
-        grid.Controls.Add(version, 0, grid.RowCount);
-        grid.SetColumnSpan(version, 3);
-        grid.RowCount++;
-
-        var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 14, 0, 0) };
-        // Shown modeless, so a DialogResult button would not close the window: close it explicitly.
-        var close = new Button { Text = "Close", AutoSize = true };
-        close.Click += (_, _) => Close();
-        var reset = new Button { Text = "Reset to defaults", AutoSize = true };
-        reset.Click += (_, _) => { _s.ResetToDefaults(); foreach (var r in _refreshers) r(); Changed(); };
-        buttons.Controls.Add(close);
-        buttons.Controls.Add(reset);
-        grid.Controls.Add(buttons, 0, grid.RowCount);
-        grid.SetColumnSpan(buttons, 3);
-        grid.RowCount++;
-
-        Controls.Add(grid);
-        AcceptButton = close;
         FormClosed += (_, _) => { _saveTimer.Stop(); _s.Save(); };
+        HandleCreated += (_, _) => { Theme.DarkChrome(this, Theme.Sidebar); Theme.DarkScrollbars(_content); };
+        ShowPage(page);
     }
 
+    int S(float v) => (int)MathF.Round(v * _k);
     void Changed() { _saveTimer.Stop(); _saveTimer.Start(); }
 
-    static void Section(TableLayoutPanel grid, string title)
+    Color PageAccent(int i) => i switch
     {
-        var l = new Label
-        {
-            Text = title, AutoSize = true, Font = new Font("Segoe UI Semibold", 10.5f),
-            Margin = new Padding(0, grid.RowCount == 0 ? 0 : 14, 0, 4),
-        };
-        grid.Controls.Add(l, 0, grid.RowCount);
-        grid.SetColumnSpan(l, 3);
-        grid.RowCount++;
+        0 => SeasonInfo.Accent(_host.CurrentSeason),
+        5 => AboutAccent,
+        _ => SeasonInfo.Accent((Season)(i - 1)),
+    };
+
+    void PaintSidebar(object? sender, PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        Theme.Hq(g);
+        using var icon = Sprites.AppIcon(S(40));
+        g.DrawImage(icon, S(22), S(30));
+        using var nf = Theme.Heading(14f);
+        using var sf = Theme.Font(8.5f);
+        using var nb = new SolidBrush(Theme.Text);
+        using var sb = new SolidBrush(Theme.Sub);
+        g.DrawString(AppInfo.Name, nf, nb, S(70), S(28));
+        g.DrawString("Four seasons for your desktop", sf, sb, S(71), S(54));
+        using var faint = new SolidBrush(Theme.Faint);
+        g.DrawString("Changes apply instantly", sf, faint, S(22), _side.Height - S(90));
     }
 
-    void Slider(TableLayoutPanel grid, string label, int min, int max, Func<int> get, Action<int> set, Func<int, string> fmt)
+    /// <summary>Switch to a page: its cards are built fresh (so they show the current state).</summary>
+    public void ShowPage(int page)
     {
-        var name = new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(8, 6, 12, 0) };
-        var bar = new TrackBar
+        _page = page;
+        for (int i = 0; i < _nav.Count; i++) { _nav[i].Selected = i == page; _nav[i].Accent = PageAccent(i); }
+        _content.SuspendLayout();
+        foreach (Control c in _content.Controls.Cast<Control>().ToList()) { _content.Controls.Remove(c); c.Dispose(); }
+        _content.AutoScrollPosition = Point.Empty;
+        var accent = PageAccent(page);
+        var items = page switch
         {
-            Minimum = min, Maximum = max, Value = Math.Clamp(get(), min, max),
-            TickStyle = TickStyle.None, Dock = DockStyle.Fill, AutoSize = false, Height = 30,
-            SmallChange = 1, LargeChange = Math.Max(1, (max - min) / 10),
+            0 => GeneralPage(accent),
+            1 => SeasonPage(Season.Winter, accent),
+            2 => SeasonPage(Season.Spring, accent),
+            3 => SeasonPage(Season.Summer, accent),
+            4 => SeasonPage(Season.Autumn, accent),
+            _ => AboutPage(accent),
         };
-        var value = new Label { AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(4, 6, 0, 0), Text = fmt(bar.Value) };
-        bar.ValueChanged += (_, _) => { set(bar.Value); value.Text = fmt(bar.Value); Changed(); };
-        _refreshers.Add(() => bar.Value = Math.Clamp(get(), min, max));
-        int row = grid.RowCount++;
-        grid.Controls.Add(name, 0, row);
-        grid.Controls.Add(bar, 1, row);
-        grid.Controls.Add(value, 2, row);
+        foreach (var c in items)
+        {
+            Tint(c, accent);
+            _content.Controls.Add(c);
+        }
+        _content.ResumeLayout();
+        StackPage(_content);
     }
 
-    void Check(TableLayoutPanel grid, string label, Func<bool> get, Action<bool> set)
+    static void Tint(Control c, Color accent)
     {
-        var box = new CheckBox { Text = label, AutoSize = true, Checked = get(), Margin = new Padding(8, 4, 0, 4) };
-        box.CheckedChanged += (_, _) => { set(box.Checked); Changed(); };
-        _refreshers.Add(() => box.Checked = get());
-        int row = grid.RowCount++;
-        grid.Controls.Add(box, 0, row);
-        grid.SetColumnSpan(box, 3);
+        if (c is KitControl kc) kc.Accent = accent;
+        if (c is Tip t) t.Accent = accent;
+        foreach (Control child in c.Controls) Tint(child, accent);
     }
+
+    /// <summary>Stack the page's pieces down the content area.</summary>
+    void StackPage(Panel p)
+    {
+        if (p.Controls.Count == 0) return;
+        int pad = S(30);
+        int w = Math.Max(S(420), p.ClientSize.Width - pad * 2);
+        int y = S(26) + p.AutoScrollPosition.Y;
+        foreach (Control c in p.Controls)
+        {
+            switch (c)
+            {
+                case Hero: c.SetBounds(pad, y, w, S(132)); y += S(132) + S(18); break;
+                case Caption: c.SetBounds(pad, y, w, S(30)); y += S(30); break;
+                case Card card: card.Location = new Point(pad, y); card.Stack(w); y += card.Height + S(18); break;
+                case Tip tip: tip.SetBounds(pad, y, w, tip.Measure(_k)); y += tip.Height + S(18); break;
+                default: c.SetBounds(pad, y, w, c.Height); y += c.Height + S(12); break;
+            }
+        }
+        p.AutoScrollMinSize = new Size(0, y - p.AutoScrollPosition.Y + S(10));
+    }
+
+    // ───────────────────────────── building blocks ─────────────────────────────
+
+    Row Toggle(string title, string detail, Func<bool> get, Action<bool> set)
+    {
+        var t = new ToggleSwitch();
+        t.SetInitial(get());
+        t.Changed += (_, _) => { set(t.Checked); Changed(); };
+        return new Row(title, detail, t, 48);
+    }
+
+    Row Slide(string title, string detail, int min, int max, Func<int> get, Action<int> set, Func<int, string> fmt)
+    {
+        var s = new Slider(min, max, get()) { Format = fmt };
+        s.Changed += (_, _) => { set(s.Value); Changed(); };
+        return new Row(title, detail, s, 280);
+    }
+
+    Row Button(string title, string detail, string text, Action click, bool primary = false)
+    {
+        var b = new PillButton(text, primary);
+        b.Click += (_, _) => click();
+        int w = Math.Max(110, (int)(b.PreferredWidth() / _k));
+        return new Row(title, detail, b, w);
+    }
+
+    static Card Card(params Row[] rows)
+    {
+        var c = new Card();
+        foreach (var r in rows) c.Controls.Add(r);
+        return c;
+    }
+
+    static string Pct(int v) => $"{v}%";
+
+    // ───────────────────────────── pages ─────────────────────────────
+
+    List<Control> GeneralPage(Color accent)
+    {
+        var now = _host.CurrentSeason;
+        string autoLine = $"Automatic follows the calendar: it's {SeasonInfo.Name(now).ToLowerInvariant()} where you are.";
+        var seasons = new Segmented(new[] { "Automatic", "Winter", "Spring", "Summer", "Autumn" }, (int)_s.Season)
+        {
+            AccentFor = i => i == 0 ? SeasonInfo.Accent(SeasonInfo.FromDate(DateTime.Now, _s.SouthernHemisphere)) : SeasonInfo.Accent((Season)(i - 1)),
+        };
+        seasons.Changed += (_, _) =>
+        {
+            _s.Season = (SeasonChoice)seasons.Selected;
+            Changed();
+            // Let the engine pick it up, then refresh the colours everywhere.
+            BeginInvoke(async () => { await Task.Delay(120); ShowPage(0); });
+        };
+        var seasonRow = new Row("Season", autoLine, seasons, 430);
+
+        return new List<Control>
+        {
+            new Hero(now, AppInfo.Name, SeasonInfo.Tagline(now)) { Badge = SeasonInfo.Name(now) },
+            new Caption("Season"),
+            Card(seasonRow,
+                 Toggle("Southern hemisphere", "Flip the calendar: winter in June, summer at Christmas.", () => _s.SouthernHemisphere, v => _s.SouthernHemisphere = v)),
+            new Caption("Weather"),
+            Card(Slide("Wind", "Which way it blows, and how hard.", -150, 150, () => _s.Wind, v => _s.Wind = v,
+                       v => v == 0 ? "calm" : v < 0 ? $"← {-v}" : $"{v} →"),
+                 Slide("Gusts", "How much the wind comes and goes.", 0, 100, () => _s.Gusts, v => _s.Gusts = v, Pct),
+                 Slide("Size", "Flakes, petals, leaves and seeds.", 40, 250, () => _s.FlakeSize, v => _s.FlakeSize = v, Pct),
+                 Slide("Brightness", "How bold the falling things look.", 10, 100, () => _s.FlakeBrightness, v => _s.FlakeBrightness = v, Pct)),
+            new Caption("Play"),
+            Card(Toggle("Play with Ctrl + Alt and the mouse", "Hold Ctrl+Alt to throw snowballs, build snowmen, kick leaves and more. Clicks pass through as normal otherwise.",
+                        () => _s.PlayWithMouse, v => _s.PlayWithMouse = v)),
+            new Caption("Taskbar"),
+            Card(Toggle("Things settle on the taskbar", "Snow, petals and leaves pile up along the top of the taskbar.", () => _s.TaskbarSnow, v => _s.TaskbarSnow = v),
+                 Slide("Height on the taskbar", "Nudge it if it doesn't sit right on your taskbar.", -120, 120, () => -_s.TaskbarSnowOffset, v => _s.TaskbarSnowOffset = -v,
+                       v => v == 0 ? "auto" : v > 0 ? $"↑ {v}px" : $"↓ {-v}px"),
+                 Slide("Clear everything every", "Start fresh now and then.", 0, 3600, () => _s.WipeSeconds, v => _s.WipeSeconds = v - v % 30,
+                       v => v < 30 ? "never" : v < 60 ? $"{v - v % 30}s" : $"{v / 60} min"),
+                 Button("Clear everything now", "Sweep all windows and the taskbar.", "Clear", _host.ClearNow)),
+            new Caption("When to step aside"),
+            Card(Toggle("When windows fill the screen", "A maximized window, or apps snapped side by side.", () => _s.HideWhenMaximized, v => _s.HideWhenMaximized = v),
+                 Toggle("In full-screen apps and games", "", () => _s.HideInFullscreen, v => _s.HideInFullscreen = v),
+                 Toggle("Battery saver", "On battery, run at 30 frames a second with a little less falling.", () => _s.BatterySaver, v => _s.BatterySaver = v),
+                 Toggle("Start with Windows", "", () => _host.StartsWithWindows, v => _host.StartsWithWindows = v)),
+        };
+    }
+
+    List<Control> SeasonPage(Season season, Color accent)
+    {
+        bool showing = _host.CurrentSeason == season;
+        bool forced = _s.Season == (SeasonChoice)((int)season + 1);
+        var hero = new Hero(season, SeasonInfo.Name(season), SeasonInfo.Tagline(season)) { Badge = showing ? "Showing now" : "" };
+        var list = new List<Control> { hero };
+
+        Row preview = showing
+            ? forced
+                ? Button("Showing all the time", "You picked this season. Go back to following the calendar?", "Automatic", () => SetChoice(SeasonChoice.Auto))
+                : Button("Showing now", "It's the season on the calendar.", $"Keep {SeasonInfo.Name(season)}", () => SetChoice((SeasonChoice)((int)season + 1)))
+            : Button("Not this season yet", "See it now. You can switch back to automatic any time.", $"Show {SeasonInfo.Name(season)}", () => SetChoice((SeasonChoice)((int)season + 1)), primary: true);
+
+        switch (season)
+        {
+            case Season.Winter:
+                list.Add(new Caption("Snow"));
+                list.Add(Card(preview,
+                    Slide("Snowfall", "How much snow falls.", 0, 300, () => _s.WinterAmount, v => _s.WinterAmount = v, v => v == 0 ? "off" : Pct(v)),
+                    Slide("Buildup", "How quickly it piles up.", 25, 400, () => _s.BuildupSpeed, v => _s.BuildupSpeed = v, Pct),
+                    Slide("Stickiness", "Runny powder or packing snow that stays put.", 0, 100, () => _s.Stickiness, v => _s.Stickiness = v,
+                          v => v < 25 ? "powdery" : v < 60 ? Pct(v) : "sticky"),
+                    Slide("Deepest pile", "How deep snow can get on a window.", 6, 200, () => _s.MaxDepth, v => _s.MaxDepth = v, v => $"{v}px"),
+                    Slide("Fling", "How easily moving a window throws its snow.", 0, 100, () => _s.FlingSensitivity, v => _s.FlingSensitivity = v, Pct)));
+                list.Add(new Caption("The snowplough"));
+                list.Add(Card(
+                    Toggle("Plough the taskbar when it gets deep", "A little snowplough drives along and pushes the snow off the edge.", () => _s.AutoPlow, v => _s.AutoPlow = v),
+                    Button("Send the snowplough", showing ? "Clear the taskbar now." : "Available in winter.", "Send", () => _host.Request(SeasonAction.Plow), primary: showing)));
+                list.Add(new Caption("Play"));
+                list.Add(new Tip(("Ctrl+Alt+Drag", "Scoop snow off a ledge, roll it bigger, and throw it."),
+                                 ("Ctrl+Alt+Click", "Throw it straight at the screen: splat."),
+                                 ("Ctrl+Alt+Right-click", "Build a snowman from the snow there (or knock one over).")));
+                break;
+
+            case Season.Spring:
+                list.Add(new Caption("Spring"));
+                list.Add(Card(preview,
+                    Slide("Blossom", "How many petals drift down.", 0, 300, () => _s.SpringAmount, v => _s.SpringAmount = v, v => v == 0 ? "off" : Pct(v)),
+                    Toggle("Spring showers", "Every so often a shower passes over, with splashes on the ledges.", () => _s.Showers, v => _s.Showers = v),
+                    Button("Bring a shower", showing ? "Or stop the one that's falling." : "Available in spring.", "Shower", () => _host.Request(SeasonAction.Shower), primary: showing)));
+                list.Add(new Caption("Life"));
+                list.Add(Card(
+                    Toggle("Butterflies", "They wander across and rest on your windows. Get close and they're off.", () => _s.Butterflies, v => _s.Butterflies = v),
+                    Toggle("Meadow on the taskbar", "Fresh grass and spring flowers that sway in the wind.", () => _s.Meadow, v => _s.Meadow = v),
+                    Button("Release butterflies", showing ? "" : "Available in spring and summer.", "Release", () => _host.Request(SeasonAction.Critters))));
+                list.Add(new Caption("Play"));
+                list.Add(new Tip(("Ctrl+Alt+Drag", "Sweep through the petals and scatter them."),
+                                 ("Ctrl+Alt+Right-click", "Start or stop a shower.")));
+                break;
+
+            case Season.Summer:
+                list.Add(new Caption("Summer"));
+                list.Add(Card(preview,
+                    Slide("Dandelion seeds", "How many drift by on the breeze.", 0, 300, () => _s.SummerAmount, v => _s.SummerAmount = v, v => v == 0 ? "off" : Pct(v)),
+                    Toggle("Meadow on the taskbar", "Tall grass with poppies, cornflowers and daisies.", () => _s.Meadow, v => _s.Meadow = v)));
+                list.Add(new Caption("Life"));
+                list.Add(Card(
+                    Toggle("Butterflies by day", "", () => _s.Butterflies, v => _s.Butterflies = v),
+                    Toggle("Fireflies after dusk", "From 8 in the evening. Hold the mouse still and they gather round.", () => _s.Fireflies, v => _s.Fireflies = v),
+                    Button("Call them now", showing ? "Butterflies by day, fireflies at night." : "Available in summer.", "Call", () => _host.Request(SeasonAction.Critters), primary: showing)));
+                list.Add(new Caption("Play"));
+                list.Add(new Tip(("Ctrl+Alt+Drag", "Blow a dandelion clock: seeds float off the mouse."),
+                                 ("Ctrl+Alt+Right-click", "Release a butterfly (or a handful of fireflies at night).")));
+                break;
+
+            default:
+                list.Add(new Caption("Leaves"));
+                list.Add(Card(preview,
+                    Slide("Falling leaves", "How many come down.", 0, 300, () => _s.AutumnAmount, v => _s.AutumnAmount = v, v => v == 0 ? "off" : Pct(v)),
+                    Slide("Deepest pile", "Leaves pile a little less deep than snow.", 6, 200, () => _s.MaxDepth, v => _s.MaxDepth = v, v => $"{v}px"),
+                    Toggle("Dust devils", "Now and then a little whirlwind spins the leaves up off the taskbar.", () => _s.DustDevils, v => _s.DustDevils = v)));
+                list.Add(new Caption("The leaf blower"));
+                list.Add(Card(
+                    Toggle("Clear the taskbar when it gets deep", "A leaf blower trundles along and sends them flying.", () => _s.AutoPlow, v => _s.AutoPlow = v),
+                    Button("Send the leaf blower", showing ? "Clear the taskbar now." : "Available in autumn.", "Send", () => _host.Request(SeasonAction.Plow), primary: showing),
+                    Button("Whip up a dust devil", showing ? "" : "Available in autumn.", "Whirl", () => _host.Request(SeasonAction.Gust))));
+                list.Add(new Caption("Play"));
+                list.Add(new Tip(("Ctrl+Alt+Drag", "Kick through the leaves and send them flying."),
+                                 ("Ctrl+Alt+Right-click", "Start a dust devil right there.")));
+                break;
+        }
+        return list;
+    }
+
+    void SetChoice(SeasonChoice c)
+    {
+        _s.Season = c;
+        Changed();
+        int page = _page;
+        BeginInvoke(async () => { await Task.Delay(150); ShowPage(page); });
+    }
+
+    List<Control> AboutPage(Color accent)
+    {
+        string version = Updater.BuildCommit is string c ? $"{AppInfo.Version} · build {c[..7]}" : $"{AppInfo.Version} · built on this PC";
+        return new List<Control>
+        {
+            new Hero(null, AppInfo.Name, "Four seasons for your desktop. Snow, blossom, summer meadows and autumn leaves that settle on your windows.", Sprites.AppIcon(S(128))),
+            new Caption("Version"),
+            Card(new Row("Version", version, null, 0),
+                 Toggle("Check for updates once a day", "Updates download from GitHub and install in a few seconds.", () => _s.CheckForUpdates, v => _s.CheckForUpdates = v),
+                 Button("Check for updates", "", "Check now", () => _ = _host.CheckForUpdatesAsync(interactive: true))),
+            new Caption("Help"),
+            Card(Button("Diagnostics", "What the app sees: screen, taskbar and scaling. Handy if things sit in the wrong place.", "Open", _host.OpenDiagnostics),
+                 Button("Reset all settings", "Back to how it was when you first installed it.", "Reset", () =>
+                 {
+                     _s.ResetToDefaults();
+                     _s.WelcomeShown = true;
+                     Changed();
+                     ShowPage(_page);
+                 })),
+        };
+    }
+
+    // Small line icons for the General and About nav entries.
+    static Bitmap GearIcon(int size)
+    {
+        var bmp = new Bitmap(size, size);
+        using var g = Graphics.FromImage(bmp);
+        Theme.Hq(g);
+        float k = size / 20f;
+        using var pen = new Pen(Color.FromArgb(205, 210, 222), 1.6f * k);
+        g.DrawEllipse(pen, 6.5f * k, 6.5f * k, 7f * k, 7f * k);
+        for (int i = 0; i < 8; i++)
+        {
+            double a = i * Math.PI / 4;
+            g.DrawLine(pen, 10 * k + (float)Math.Cos(a) * 5.4f * k, 10 * k + (float)Math.Sin(a) * 5.4f * k,
+                            10 * k + (float)Math.Cos(a) * 8.2f * k, 10 * k + (float)Math.Sin(a) * 8.2f * k);
+        }
+        return bmp;
+    }
+
+    static Bitmap InfoIcon(int size)
+    {
+        var bmp = new Bitmap(size, size);
+        using var g = Graphics.FromImage(bmp);
+        Theme.Hq(g);
+        float k = size / 20f;
+        using var pen = new Pen(Color.FromArgb(205, 210, 222), 1.6f * k);
+        g.DrawEllipse(pen, 2f * k, 2f * k, 16f * k, 16f * k);
+        g.DrawLine(pen, 10 * k, 9 * k, 10 * k, 14.5f * k);
+        using var b = new SolidBrush(Color.FromArgb(205, 210, 222));
+        g.FillEllipse(b, 9 * k, 5 * k, 2 * k, 2 * k);
+        return bmp;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _saveTimer.Dispose();
+        base.Dispose(disposing);
+    }
+}
+
+/// <summary>A panel that doesn't flicker while scrolling.</summary>
+internal sealed class DoubleBufferedPanel : Panel
+{
+    public DoubleBufferedPanel()
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+    }
+
+    protected override void OnScroll(ScrollEventArgs se) { base.OnScroll(se); Invalidate(true); }
+    protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); Invalidate(true); }
 }

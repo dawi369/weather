@@ -21,7 +21,7 @@ internal sealed unsafe class GroundLayer : NativeWindow, IDisposable
     {
         var cp = new CreateParams
         {
-            Caption = "WeatherSnowGround",
+            Caption = AppInfo.Name + "Ground",
             X = 0, Y = groundY - Height, Width = width, Height = Height,
             Style = unchecked((int)Native.WS_POPUP),
             ExStyle = (int)(Native.WS_EX_LAYERED | Native.WS_EX_TRANSPARENT | Native.WS_EX_TOOLWINDOW |

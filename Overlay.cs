@@ -18,7 +18,7 @@ internal sealed unsafe class Overlay : NativeWindow, IDisposable
         var screen = Native.PrimaryScreen();
         var cp = new CreateParams
         {
-            Caption = "WeatherSnowOverlay",
+            Caption = AppInfo.Name + "Overlay",
             X = 0, Y = 0, Width = screen.Width, Height = screen.Height,
             Style = unchecked((int)Native.WS_POPUP),
             ExStyle = (int)(Native.WS_EX_LAYERED | Native.WS_EX_TRANSPARENT | Native.WS_EX_TOOLWINDOW |
@@ -55,6 +55,9 @@ internal sealed unsafe class Overlay : NativeWindow, IDisposable
     public void Clear() => new Span<uint>(Pixels, Width * Height).Clear();
 
     public void Present() => Native.Present(Handle, _screenDC, _memDC, Width, Height);
+
+    /// <summary>Push only the given rectangle of changes (see <see cref="Renderer.Dirty"/>).</summary>
+    public void PresentDirty(Native.RECT dirty) => Native.PresentDirty(Handle, _screenDC, _memDC, Width, Height, dirty);
 
     public void Dispose()
     {

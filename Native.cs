@@ -50,6 +50,8 @@ internal static class Native
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr(IntPtr h, int index);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr h, StringBuilder sb, int max);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowTextLength(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder sb, int max);
+    public static string Title(IntPtr h) { var sb = new StringBuilder(256); GetWindowText(h, sb, sb.Capacity); return sb.ToString(); }
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
@@ -191,6 +193,43 @@ internal static class Native
 
     public static void KeepTopmost(IntPtr h) =>
         SetWindowPos(h, new IntPtr(-1), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS);
+
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct UPDATELAYEREDWINDOWINFO
+    {
+        public int cbSize;
+        public IntPtr hdcDst, pptDst, psize, hdcSrc, pptSrc;
+        public uint crKey;
+        public IntPtr pblend;
+        public uint dwFlags;
+        public IntPtr prcDirty;
+    }
+
+    [DllImport("user32.dll")] static extern bool UpdateLayeredWindowIndirect(IntPtr h, ref UPDATELAYEREDWINDOWINFO info);
+
+    /// <summary>
+    /// Push only the changed part of a full-screen layered window (its position stays put): the
+    /// compositor copies just that rectangle instead of the whole screen.
+    /// </summary>
+    public static unsafe void PresentDirty(IntPtr hwnd, IntPtr screenDC, IntPtr memDC, int w, int h, RECT dirty)
+    {
+        var src = new POINT();
+        var size = new SIZE { cx = w, cy = h };
+        var blend = new BLENDFUNCTION { BlendOp = 0, SourceConstantAlpha = 255, AlphaFormat = 1 };
+        var info = new UPDATELAYEREDWINDOWINFO
+        {
+            cbSize = sizeof(UPDATELAYEREDWINDOWINFO),
+            hdcDst = screenDC,
+            psize = (IntPtr)(&size),
+            hdcSrc = memDC,
+            pptSrc = (IntPtr)(&src),
+            pblend = (IntPtr)(&blend),
+            dwFlags = ULW_ALPHA,
+            prcDirty = (IntPtr)(&dirty),
+        };
+        if (!UpdateLayeredWindowIndirect(hwnd, ref info)) PresentInPlace(hwnd, screenDC, memDC, w, h);
+    }
 
     public static void Present(IntPtr hwnd, IntPtr screenDC, IntPtr memDC, int w, int h, int x = 0, int y = 0)
     {

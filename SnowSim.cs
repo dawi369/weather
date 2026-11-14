@@ -1,17 +1,24 @@
 namespace Weather;
 
-internal enum PKind : byte { Flake, Clump, Powder }
+/// <summary>
+/// What a particle is. Flake/Clump/Powder are snow; Petal, Leaf and Seed are the other seasons' fall;
+/// Rain and Splash are spring showers; Ball is a thrown snowball; Smoke is the plough's exhaust.
+/// </summary>
+internal enum PKind : byte { Flake, Clump, Powder, Petal, Leaf, Seed, Rain, Splash, Ball, Smoke }
 
 internal struct Particle
 {
     public float X, Y, VX, VY, R, Alpha, Phase, Freq, Sway, Vol, Depth;
     public float Rot, RotSpeed;  // crystals: orientation and spin
     public float Life, Fade;     // landed flakes: time left / total, while they rest on the snow and fade out
+    public float Fall;           // petals, leaves, seeds: the speed they settle at in still air
     public float RelX;           // landed flakes: x relative to the surface they rest on
     public IntPtr Surf;          // landed flakes: that surface's window (Zero = the taskbar snow)
     public float NoLand;         // chunks: seconds before they may land (no instant re-landing)
-    public byte Shape;           // flakes: 0 soft dot, 1..Crystals.Designs a crystal, 255 a fluffy aggregate
+    public byte Shape;           // flakes: 0 soft dot, 1..Crystals.Designs a crystal, 255 a fluffy aggregate; leaves: shape*6+colour
     public PKind Kind;
+    public bool FromPile;        // petals/leaves knocked off a pile: already at window depth, so they always land
+    public float Age;            // seeds, splashes, smoke: seconds left to live
 }
 
 /// <summary>
@@ -58,6 +65,11 @@ internal sealed class Surface
 
     public float PileTop(int i) => Clamped ? AnchorY + H[i] : AnchorY - H[i];
 
+    /// <summary>Heightmap column under screen x (clamped to the surface).</summary>
+    public int Col(float x) => Math.Clamp((int)((x - Left) / SnowSim.Cell), 0, Math.Max(0, Cells - 1));
+
+    public float PileTopAt(float x) => Cells == 0 ? AnchorY : PileTop(Col(x));
+
     /// <summary>Resize the heightmap; new[i] = old[i + offset].</summary>
     public void Reshape(int cells, int offset)
     {
@@ -83,7 +95,7 @@ internal sealed class Surface
 }
 
 /// <summary>The snow physics: falling flakes, piles on windows and the taskbar, flinging, sliding and dripping.</summary>
-internal sealed class SnowSim
+internal sealed partial class SnowSim
 {
     public const int Cell = 2;
     const int MaxParticles = 40000;
@@ -137,6 +149,7 @@ internal sealed class SnowSim
         WipeSeconds = st.WipeSeconds;
         if (GroundOn && !st.TaskbarSnow) Array.Clear(Ground.H);
         GroundOn = st.TaskbarSnow;
+        ApplySeason(st);
     }
     static readonly float[] Kernel = { 0.04f, 0.08f, 0.13f, 0.17f, 0.16f, 0.17f, 0.13f, 0.08f, 0.04f };
 
@@ -175,6 +188,7 @@ internal sealed class SnowSim
         ComputeLinks();
         UpdateWind(dt);
         Spawn(dt);
+        UpdatePlay(dt);
         StepParticles(dt);
         foreach (var s in Z) Settle(s, dt);
         foreach (var s in Z) FlowAcross(s);
@@ -223,9 +237,9 @@ internal sealed class SnowSim
         SyncWindows(wins, dt);
         SyncGround(groundY);
 
-        if (_windows.TryGetValue(roof, out var s))
+        if (Material != Material.None && _windows.TryGetValue(roof, out var s))
         {
-            _spawnAcc += SpawnRate() * dt;
+            _spawnAcc += SpawnRate() * HiddenRate * dt;
             while (_spawnAcc >= 1f)
             {
                 _spawnAcc -= 1f;
@@ -247,9 +261,12 @@ internal sealed class SnowSim
         Array.Clear(Ground.H);
         for (int n = 0; n < Count;)
         {
-            if (Particles[n].Kind != PKind.Flake) Particles[n] = Particles[--Count];
+            ref var p = ref Particles[n];
+            if (p.Life > 0 || p.FromPile || p.Kind is PKind.Clump or PKind.Powder or PKind.Splash or PKind.Ball)
+                Particles[n] = Particles[--Count];
             else n++;
         }
+        ClearPlay();
     }
 
     /// <summary>Forget window velocities (after a pause) so nothing gets flung on resume.</summary>
@@ -741,7 +758,10 @@ internal sealed class SnowSim
         Wind += (target - Wind) * MathF.Min(1f, dt * 1.5f);
     }
 
-    float SpawnRate() => SpawnPerSec * ScreenW / 1920f;
+    /// <summary>Less falls on battery (set by the engine).</summary>
+    public float Economy = 1f;
+
+    float SpawnRate() => SpawnPerSec * ScreenW / 1920f * Economy;
 
     float TurbAmp => 14f + Gustiness * 22f; // px/s of swirl
 
@@ -759,9 +779,9 @@ internal sealed class SnowSim
         ty = b * 0.6f - c * 0.3f;
     }
 
-    void Spawn(float dt)
+    void SpawnSnow(float dt)
     {
-        _spawnAcc += SpawnRate() * dt;
+        _spawnAcc += SpawnRate() * Amount * dt;
         while (_spawnAcc >= 1f)
         {
             _spawnAcc -= 1f;
@@ -807,6 +827,7 @@ internal sealed class SnowSim
     void AddClump(float x, float y, float vol, float vx, float vy, PKind kind)
     {
         if (Count >= MaxParticles) return;
+        if (Material is Material.Leaves or Material.Petals) { AddLitter(x, y, vol, vx, vy, kind == PKind.Powder); return; }
         ref var p = ref Particles[Count++];
         p = default;
         p.Kind = kind;
@@ -827,16 +848,37 @@ internal sealed class SnowSim
             ref var p = ref Particles[n];
             float y0 = p.Y;
 
-            // A flake that has landed rests on the snow (riding along if its window moves) and fades out.
+            // A flake, petal or leaf that has landed rests on the pile (riding along if its window
+            // moves) and fades out. Seeds rest a moment and then lift off again.
             if (p.Life > 0)
             {
                 p.Life -= dt;
                 Surface? on = p.Surf == IntPtr.Zero ? Ground : _windows.TryGetValue(p.Surf, out var ws) ? ws : null;
-                if (p.Life <= 0 || on == null || on.Cells == 0) { Particles[n] = Particles[--Count]; continue; }
+                if (on == null || on.Cells == 0) { Particles[n] = Particles[--Count]; continue; }
                 p.X = on.Left + p.RelX;
                 int ci = Math.Clamp((int)(p.RelX / Cell), 0, on.Cells - 1);
                 if (on.Vis[ci] == 0 || on.Clamped) { Particles[n] = Particles[--Count]; continue; }
-                p.Y = on.PileTop(ci) - p.R * 0.25f;
+                bool litter = p.Kind is PKind.Leaf or PKind.Petal;
+                // The pile under a resting leaf was knocked off, or the window jerked: off it goes too.
+                bool knocked = litter && (on.H[ci] < 0.25f && p.Life < p.Fade - 0.5f
+                                          || MathF.Abs(on.AY) > FlingAccel * 0.6f || MathF.Abs(on.AX) > ShakeAccel);
+                if (p.Life <= 0 || knocked)
+                {
+                    if (p.Kind == PKind.Seed || knocked)
+                    {
+                        p.Life = 0;
+                        p.VX = on.VX * 0.6f + R(-20f, 20f);
+                        p.VY = MathF.Min(on.VY, 0f) * 0.6f - R(12f, 40f);
+                        p.Y -= 2f;
+                        p.FromPile = litter;
+                        p.NoLand = 0.4f;
+                        n++;
+                        continue;
+                    }
+                    Particles[n] = Particles[--Count];
+                    continue;
+                }
+                p.Y = on.PileTop(ci) - (litter ? 1.2f : p.Kind == PKind.Seed ? 0f : p.R * 0.25f);
                 n++;
                 continue;
             }
@@ -868,7 +910,7 @@ internal sealed class SnowSim
                     p.Y += p.VY * dt;
                     break;
                 }
-                default: // powder
+                case PKind.Powder:
                     p.NoLand -= dt;
                     p.VY += 220f * dt;
                     p.VX += (wind - p.VX) * 2.8f * dt;
@@ -876,31 +918,101 @@ internal sealed class SnowSim
                     p.X += (p.VX + MathF.Sin(_time * p.Freq + p.Phase) * 12f) * dt;
                     p.Y += p.VY * dt;
                     break;
+                case PKind.Petal:
+                case PKind.Leaf:
+                case PKind.Seed:
+                    StepFlutter(ref p, dt, wind);
+                    break;
+                case PKind.Rain:
+                    p.X += p.VX * dt;
+                    p.Y += p.VY * dt;
+                    break;
+                case PKind.Splash:
+                    p.Age -= dt;
+                    if (p.Age <= 0) { Particles[n] = Particles[--Count]; continue; }
+                    p.VY += 1300f * dt;
+                    p.X += p.VX * dt;
+                    p.Y += p.VY * dt;
+                    n++;
+                    continue; // splashes never land
+                case PKind.Ball:
+                    p.NoLand -= dt;
+                    p.VY += Gravity * 0.8f * dt;
+                    p.VX -= p.VX * 0.15f * dt;
+                    p.X += p.VX * dt;
+                    p.Y += p.VY * dt;
+                    p.Rot += p.VX * 0.02f * dt;
+                    if (BallHitsSnowman(ref p)) { Particles[n] = Particles[--Count]; continue; }
+                    break;
+                case PKind.Smoke:
+                    p.Age -= dt;
+                    if (p.Age <= 0) { Particles[n] = Particles[--Count]; continue; }
+                    p.VX += (wind * 0.8f - p.VX) * 1.5f * dt;
+                    p.VY -= p.VY * 1.2f * dt;
+                    p.X += p.VX * dt;
+                    p.Y += p.VY * dt;
+                    p.R += 5f * dt;
+                    n++;
+                    continue;
             }
 
             bool remove = false;
-            bool flake = p.Kind == PKind.Flake;
+            // Things falling from the sky mostly pass in front of a window's top edge; things that
+            // came off a pile (or were thrown) are at window depth and always hit it.
+            bool sky = p.Kind is PKind.Flake or PKind.Rain or PKind.Seed || (p.Kind is PKind.Petal or PKind.Leaf && !p.FromPile);
+            bool settles = p.Kind is PKind.Flake or PKind.Petal or PKind.Leaf or PKind.Rain || p.Kind == PKind.Seed && p.Shape == 0 || p.Vol > 0;
             // Blown spray (Vol 0) is only for show and never settles; chunks can't land the instant
             // they're released (or they'd sit there looking like a stuck ball).
-            if (p.Y > y0 && (p.Vol > 0 || flake) && (flake || p.NoLand <= 0) && TryLand(p.X, y0, p.Y, flake, out var hit))
+            if (p.Y > y0 && settles && (sky || p.NoLand <= 0) && TryLand(p.X, y0, p.Y, sky, out var hit))
             {
-                // Only a share of flakes hit a window edge, so scale them up to keep the buildup rate.
-                float vol = flake && !hit!.IsGround ? p.Vol / CatchChance : p.Vol;
-                if (flake) vol *= WeightAt(hit!, p.X); // uneven buildup: mounds and hollows
-                Deposit(hit!, p.X, vol);
-                if (flake && hit!.Cells > 0)
+                if (p.Kind == PKind.Rain)
                 {
-                    // Don't vanish on touchdown: rest on the snow for a moment and fade out.
-                    p.Fade = p.Life = p.Shape is > 0 and < 255 ? R(0.9f, 1.6f) : R(0.45f, 1.0f);
-                    p.Surf = hit.IsGround ? IntPtr.Zero : hit.Hwnd;
+                    Splash(p.X, hit!.PileTopAt(p.X), p.Depth);
+                    remove = true;
+                }
+                else if (p.Kind == PKind.Seed)
+                {
+                    // A seed settles on a ledge for a few seconds, then the breeze takes it again.
+                    p.Life = p.Fade = R(2f, 7f);
+                    p.Surf = hit!.IsGround ? IntPtr.Zero : hit.Hwnd;
                     p.RelX = p.X - hit.Left;
-                    p.RotSpeed *= 0.1f;
                     n++;
                     continue;
                 }
-                remove = true;
+                else if (p.Kind == PKind.Ball)
+                {
+                    BallSplat(hit!, ref p);
+                    remove = true;
+                }
+                else
+                {
+                    // Only a share of flakes hit a window edge, so scale them up to keep the buildup rate.
+                    float vol = sky && !hit!.IsGround ? p.Vol / CatchChance : p.Vol;
+                    if (sky) vol *= WeightAt(hit!, p.X); // uneven buildup: mounds and hollows
+                    if (Material != Material.None || p.Kind is PKind.Clump or PKind.Powder) Deposit(hit!, p.X, vol);
+                    bool rests = p.Kind is PKind.Flake or PKind.Petal or PKind.Leaf;
+                    if (rests && hit!.Cells > 0)
+                    {
+                        // Don't vanish on touchdown: rest on the pile for a moment and fade out.
+                        p.Fade = p.Life = p.Kind switch
+                        {
+                            PKind.Leaf => R(16f, 34f) * (Count > 6000 ? 0.4f : 1f),
+                            PKind.Petal => R(5f, 11f),
+                            _ => p.Shape is > 0 and < 255 ? R(0.9f, 1.6f) : R(0.45f, 1.0f),
+                        };
+                        p.Surf = hit.IsGround ? IntPtr.Zero : hit.Hwnd;
+                        p.RelX = p.X - hit.Left;
+                        p.RotSpeed *= 0.1f;
+                        p.VX = p.VY = 0;
+                        n++;
+                        continue;
+                    }
+                    remove = true;
+                }
             }
             else if (p.Y > ScreenH + 40 || p.Y < -4000 || p.X < -2500 || p.X > ScreenW + 2500)
+                remove = true;
+            else if (p.Kind == PKind.Seed && (p.Age -= dt) <= 0)
                 remove = true;
 
             if (remove) { Particles[n] = Particles[--Count]; continue; }

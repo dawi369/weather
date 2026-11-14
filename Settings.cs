@@ -31,9 +31,29 @@ internal sealed class Settings
     public bool HideWhenMaximized { get; set; } = true;
     public bool HideInFullscreen { get; set; } = true;
 
+    // Seasons
+    public SeasonChoice Season { get; set; } = SeasonChoice.Auto;
+    public bool SouthernHemisphere { get; set; }
+    public int WinterAmount { get; set; } = 100;       // % how much falls in each season
+    public int SpringAmount { get; set; } = 100;
+    public int SummerAmount { get; set; } = 100;
+    public int AutumnAmount { get; set; } = 100;
+    public bool PlayWithMouse { get; set; } = true;    // Ctrl+Alt + mouse: snowballs, snowmen, kicking leaves…
+    public bool AutoPlow { get; set; } = true;         // the plough / leaf blower clears a deep taskbar by itself
+    public bool Showers { get; set; } = true;          // spring
+    public bool Butterflies { get; set; } = true;      // spring and summer
+    public bool Meadow { get; set; } = true;           // grass and flowers on the taskbar, spring and summer
+    public bool Fireflies { get; set; } = true;        // summer nights
+    public bool DustDevils { get; set; } = true;       // autumn
+
+    // Performance
+    public bool BatterySaver { get; set; } = true;     // on battery: 30 fps, less falling
+
     // Updates
     public bool CheckForUpdates { get; set; } = true;
     public DateTime LastUpdateCheckUtc { get; set; }
+
+    public bool WelcomeShown { get; set; }
 
     [JsonIgnore] public volatile bool Paused;
 
@@ -45,7 +65,10 @@ internal sealed class Settings
     }
 
     public static readonly string Folder = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WeatherSnow");
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppInfo.Name);
+
+    static readonly string OldFolder = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppInfo.OldName);
 
     static readonly string FilePath = Path.Combine(Folder, "settings.json");
 
@@ -55,6 +78,16 @@ internal sealed class Settings
     {
         try
         {
+            // Carry settings over from before the app was renamed (WeatherSnow). They still get the
+            // welcome card: the other three seasons are new to them.
+            string old = Path.Combine(OldFolder, "settings.json");
+            if (!File.Exists(FilePath) && File.Exists(old))
+            {
+                var s = JsonSerializer.Deserialize<Settings>(File.ReadAllText(old), Json) ?? new Settings();
+                s.WelcomeShown = false;
+                s.Save();
+                return s;
+            }
             if (File.Exists(FilePath))
                 return JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath), Json) ?? new Settings();
         }

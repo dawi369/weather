@@ -15,7 +15,7 @@ internal static class Updater
 {
     const string Repo = "dawi369/weather";
     const string ReleaseTag = "latest";
-    const string AssetName = "WeatherSnow.exe";
+    const string AssetName = "Windowsill.exe";
 
     static readonly HttpClient Http = CreateClient(TimeSpan.FromSeconds(30));
     static readonly HttpClient Download = CreateClient(TimeSpan.FromMinutes(10));
@@ -23,7 +23,7 @@ internal static class Updater
     static HttpClient CreateClient(TimeSpan timeout)
     {
         var c = new HttpClient { Timeout = timeout };
-        c.DefaultRequestHeaders.UserAgent.ParseAdd("WeatherSnow-Updater");
+        c.DefaultRequestHeaders.UserAgent.ParseAdd("Windowsill-Updater");
         c.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         return c;
     }

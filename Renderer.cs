@@ -1,13 +1,15 @@
 namespace Weather;
 
 /// <summary>Software rasterizer into the overlay's premultiplied BGRA buffer.</summary>
-internal static unsafe class Renderer
+internal static unsafe partial class Renderer
 {
     public static void Draw(uint* px, int w, int h, SnowSim sim)
     {
-        new Span<uint>(px, w * h).Clear();
+        BeginFrame(px, w, h);
 
         _time = sim.Time;
+        _mat = sim.Material;
+        _scale = sim.UiScale;
         for (int k = sim.Z.Count - 1; k >= 0; k--) DrawPile(px, w, h, sim.Z[k], 0);
         foreach (var s in sim.Z)
             if (s.LinkR != null) DrawBridge(px, w, h, s, s.LinkR);
@@ -21,55 +23,137 @@ internal static unsafe class Renderer
             _occ[_occN++] = (s.Left, s.Top, s.Right, s.Bottom);
         }
 
+        DrawSnowmen(px, w, h, sim, ground: false, 0);
+        DrawDevil(px, w, h, sim);
+
         var ps = sim.Particles;
         for (int n = 0; n < sim.Count; n++)
         {
             ref var p = ref ps[n];
-            // Landed flakes sit on the snow on top of a window, outside its body: never clipped.
-            if (p.Life > 0) _clip = false;
-            else
-            {
-                float ext = p.Shape is > 0 and < 255 ? 9f : p.R + 3f;
-                int cover = Coverage(p.X - ext, p.Y - ext, p.X + ext, p.Y + ext);
-                if (cover == 2) continue; // entirely behind a window
-                _clip = cover == 1;       // straddles a window's edge: clip per pixel
-            }
-            switch (p.Kind)
-            {
-                case PKind.Flake:
-                {
-                    bool landed = p.Life > 0;
-                    float a = landed ? p.Alpha * (p.Life / p.Fade) : p.Alpha; // landed flakes fade out
-                    // A faint cool outline on nearer flakes, so snow still reads over light windows.
-                    if (p.Depth > 0.45f && p.Shape == 0)
-                        Disc(px, w, h, p.X, p.Y, p.R + 1.1f, a * 0.16f, 110, 125, 155, soft: true);
-                    if (p.Shape == 0)
-                    {
-                        // Near, fast flakes smear a touch along their fall (motion blur).
-                        if (!landed && p.Depth > 0.6f)
-                            Disc(px, w, h, p.X, p.Y - p.VY * 0.014f, p.R * 0.85f, a * 0.32f, 255, 255, 255, soft: true);
-                        Disc(px, w, h, p.X, p.Y, p.R, a, 255, 255, 255, soft: true);
-                    }
-                    else if (p.Shape == 255) Fluffy(px, w, h, ref p, a);
-                    else if (landed)
-                    {
-                        // A crystal that landed melts into the snow: its arms fade first, leaving a
-                        // soft white speck that fades too.
-                        float k = p.Life / p.Fade;
-                        if (k > 0.55f) Crystal(px, w, h, ref p, a * (k - 0.55f) / 0.45f);
-                        Disc(px, w, h, p.X, p.Y, p.R * 0.4f, p.Alpha * MathF.Min(1f, k * 1.4f) * 0.8f, 255, 255, 255, soft: true);
-                    }
-                    else Crystal(px, w, h, ref p, a);
-                    break;
-                }
-                case PKind.Clump: Disc(px, w, h, p.X, p.Y, p.R, p.Alpha, 236, 242, 252, soft: false); break;
-                default: Disc(px, w, h, p.X, p.Y, p.R, p.Alpha, 250, 252, 255, soft: true); break;
-            }
+            if (p.Life > 0 && p.Surf == IntPtr.Zero) continue; // resting on the taskbar: drawn with it (DrawGround)
+            DrawParticle(px, w, h, ref p, 0);
         }
         _clip = false;
+
+        DrawCritters(px, w, h, sim);
+        DrawSplats(px, w, h, sim);
+        if (sim.Holding) Ball(px, w, h, sim.HeldX, sim.HeldY, sim.HeldRadius, 1f);
+        EndFrame();
     }
 
-    static float _time;
+    /// <param name="yOff">Screen y of the buffer's first row.</param>
+    static void DrawParticle(uint* px, int w, int h, ref Particle p, int yOff)
+    {
+        float py = p.Y - yOff;
+        // Landed things sit on the pile on top of a window, outside its body; snowballs, puffs and
+        // exhaust are in front of everything. All else is background and goes behind windows.
+        if (p.Life > 0 || yOff != 0 || p.Kind is PKind.Ball or PKind.Smoke or PKind.Splash) _clip = false;
+        else
+        {
+            float ext = p.Kind switch
+            {
+                PKind.Flake => p.Shape is > 0 and < 255 ? 9f : p.R + 3f,
+                PKind.Leaf => 13f * p.R,
+                PKind.Petal => 8f * p.R,
+                PKind.Seed => 12f * p.R,
+                PKind.Rain => 30f,
+                _ => p.R + 3f,
+            };
+            int cover = Coverage(p.X - ext, py - ext, p.X + ext, py + ext);
+            if (cover == 2) return; // entirely behind a window
+            _clip = cover == 1;       // straddles a window's edge: clip per pixel
+        }
+        bool landed = p.Life > 0;
+        switch (p.Kind)
+        {
+            case PKind.Flake:
+            {
+                float a = landed ? p.Alpha * (p.Life / p.Fade) : p.Alpha; // landed flakes fade out
+                // A faint cool outline on nearer flakes, so snow still reads over light windows.
+                if (p.Depth > 0.45f && p.Shape == 0)
+                    Disc(px, w, h, p.X, py, p.R + 1.1f, a * 0.16f, 110, 125, 155, soft: true);
+                if (p.Shape == 0)
+                {
+                    // Near, fast flakes smear a touch along their fall (motion blur).
+                    if (!landed && p.Depth > 0.6f)
+                        Disc(px, w, h, p.X, py - p.VY * 0.014f, p.R * 0.85f, a * 0.32f, 255, 255, 255, soft: true);
+                    Disc(px, w, h, p.X, py, p.R, a, 255, 255, 255, soft: true);
+                }
+                else if (p.Shape == 255) Fluffy(px, w, h, p.X, py, ref p, a);
+                else if (landed)
+                {
+                    // A crystal that landed melts into the snow: its arms fade first, leaving a
+                    // soft white speck that fades too.
+                    float k = p.Life / p.Fade;
+                    if (k > 0.55f) Crystal(px, w, h, p.X, py, ref p, a * (k - 0.55f) / 0.45f);
+                    Disc(px, w, h, p.X, py, p.R * 0.4f, p.Alpha * MathF.Min(1f, k * 1.4f) * 0.8f, 255, 255, 255, soft: true);
+                }
+                else Crystal(px, w, h, p.X, py, ref p, a);
+                break;
+            }
+            case PKind.Clump: Disc(px, w, h, p.X, py, p.R, p.Alpha, 236, 242, 252, soft: false); break;
+            case PKind.Powder: Disc(px, w, h, p.X, py, p.R, p.Alpha, 250, 252, 255, soft: true); break;
+            case PKind.Leaf:
+            {
+                float s = MathF.Sin(p.Phase);
+                float rot, squash, a = p.Alpha;
+                if (landed) { rot = p.Rot; squash = 0.5f; a *= MathF.Min(1f, p.Life / 3f); }
+                else if (MathF.Abs(p.RotSpeed) > 2f) { rot = p.Rot; squash = 0.3f + 0.7f * MathF.Abs(MathF.Cos(p.Rot * 1.3f)); }
+                else { rot = p.Rot + s * 0.7f; squash = 1f - 0.55f * MathF.Abs(s); }
+                int shape = p.Shape / Sprites.LeafColors, col = p.Shape % Sprites.LeafColors;
+                if (!landed && p.Depth < 0.45f) a *= 0.85f;
+                if (landed) Blit(px, w, h, Sprites.LeafLying(shape, col, rot, p.R > 0.9f), p.X, py, 1f, 1f, a);
+                else Blit(px, w, h, Sprites.Leaf(shape, col, rot), p.X, py, p.R, p.R * squash, a);
+                break;
+            }
+            case PKind.Petal:
+            {
+                float a = p.Alpha, squash;
+                if (landed) { squash = 0.55f; a *= MathF.Min(1f, p.Life / 2f); }
+                else squash = 0.35f + 0.65f * MathF.Abs(MathF.Cos(p.Phase * 0.8f + p.Rot));
+                if (landed) Blit(px, w, h, Sprites.PetalLying(p.Shape, p.Rot), p.X, py, 1f, 1f, a);
+                else Blit(px, w, h, Sprites.Petal(p.Shape, p.Rot), p.X, py, p.R, p.R * squash, a);
+                break;
+            }
+            case PKind.Seed:
+            {
+                float a = p.Alpha * MathF.Min(1f, p.Age / 2f + (landed ? 1f : 0f));
+                if (p.Shape == 1)
+                {
+                    // A sunlit pollen mote: a tiny warm twinkle.
+                    float tw = 0.5f + 0.5f * MathF.Sin(p.Age * 3f + p.Phase);
+                    Disc(px, w, h, p.X, py, 3f * _scale, 0.12f * a * tw, 255, 226, 150, soft: true);
+                    Disc(px, w, h, p.X, py, 0.7f * _scale, 0.8f * a * tw, 255, 240, 200, soft: true);
+                    break;
+                }
+                Blit(px, w, h, Sprites.Seed(p.Rot / 0.35f), p.X, py - 3f * p.R, p.R, p.R, a);
+                break;
+            }
+            case PKind.Rain:
+            {
+                float len = 0.02f + 0.008f * p.Depth;
+                Streak(px, w, h, p.X - p.VX * len, py - p.VY * len, p.X, py, p.Alpha, 200, 215, 235);
+                break;
+            }
+            case PKind.Splash:
+            {
+                float a = p.Alpha * MathF.Min(1f, p.Age * 6f);
+                if (p.Shape == 1) Disc(px, w, h, p.X, py, p.R, a, 210, 225, 245, soft: true);
+                else Disc(px, w, h, p.X, py, p.R, a, 250, 252, 255, soft: true);
+                break;
+            }
+            case PKind.Ball: Ball(px, w, h, p.X, py, p.R, 1f); break;
+            case PKind.Smoke:
+            {
+                float k = p.Age / MathF.Max(p.Fade, 0.01f);
+                Disc(px, w, h, p.X, py, p.R, p.Alpha * k * k, 168, 170, 176, soft: true);
+                break;
+            }
+        }
+    }
+
+    static float _time, _scale = 1f;
+    static Material _mat;
 
     // Window rectangles this frame, and whether the particle being drawn needs per-pixel clipping.
     static (int L, int T, int R, int B)[] _occ = new (int, int, int, int)[64];
@@ -105,16 +189,17 @@ internal static unsafe class Renderer
     /// A snowflake crystal: a pre-rendered six-armed dendrite at the flake's size and spin, tilting
     /// in 3D as it tumbles (squashed vertically), with a soft glow so it isn't a hard cut-out.
     /// </summary>
-    static void Crystal(uint* px, int w, int h, ref Particle p, float alpha)
+    static void Crystal(uint* px, int w, int h, float cx, float cy, ref Particle p, float alpha)
     {
         var mask = Crystals.Get(p.Shape - 1, p.R, p.Rot, out int size);
         float tilt = p.Life > 0 ? 0.5f : 0.5f + 0.5f * MathF.Abs(MathF.Cos(_time * p.Freq * 0.7f + p.Phase));
         float half = size / 2f;
-        Disc(px, w, h, p.X, p.Y, half * 0.95f, alpha * 0.1f, 110, 125, 155, soft: true);  // cool halo for light backgrounds
-        Disc(px, w, h, p.X, p.Y, half * 0.55f, alpha * 0.22f, 255, 255, 255, soft: true); // soft glow
+        Disc(px, w, h, cx, cy, half * 0.95f, alpha * 0.1f, 110, 125, 155, soft: true);  // cool halo for light backgrounds
+        Disc(px, w, h, cx, cy, half * 0.55f, alpha * 0.22f, 255, 255, 255, soft: true); // soft glow
         int dh = Math.Max(1, (int)MathF.Ceiling(size * tilt));
-        int x0 = (int)MathF.Round(p.X - half), y0 = (int)MathF.Round(p.Y - dh / 2f);
+        int x0 = (int)MathF.Round(cx - half), y0 = (int)MathF.Round(cy - dh / 2f);
         if (x0 + size <= 0 || y0 + dh <= 0 || x0 >= w || y0 >= h) return;
+        Mark(x0, y0, x0 + size, y0 + dh);
         for (int dy = 0; dy < dh; dy++)
         {
             int y = y0 + dy;
@@ -137,14 +222,14 @@ internal static unsafe class Renderer
     }
 
     /// <summary>A fluffy aggregate (several crystals stuck together): a few overlapping soft blobs.</summary>
-    static void Fluffy(uint* px, int w, int h, ref Particle p, float alpha)
+    static void Fluffy(uint* px, int w, int h, float cx, float cy, ref Particle p, float alpha)
     {
         float r = p.R;
         float ox = MathF.Cos(p.Phase) * r * 0.7f, oy = MathF.Sin(p.Phase) * r * 0.5f;
-        Disc(px, w, h, p.X, p.Y, r + 1.4f, alpha * 0.12f, 110, 125, 155, soft: true);
-        Disc(px, w, h, p.X, p.Y, r * 0.9f, alpha * 0.9f, 255, 255, 255, soft: true);
-        Disc(px, w, h, p.X + ox, p.Y + oy, r * 0.62f, alpha * 0.75f, 250, 252, 255, soft: true);
-        Disc(px, w, h, p.X - oy, p.Y + ox * 0.6f, r * 0.5f, alpha * 0.7f, 250, 252, 255, soft: true);
+        Disc(px, w, h, cx, cy, r + 1.4f, alpha * 0.12f, 110, 125, 155, soft: true);
+        Disc(px, w, h, cx, cy, r * 0.9f, alpha * 0.9f, 255, 255, 255, soft: true);
+        Disc(px, w, h, cx + ox, cy + oy, r * 0.62f, alpha * 0.75f, 250, 252, 255, soft: true);
+        Disc(px, w, h, cx - oy, cy + ox * 0.6f, r * 0.5f, alpha * 0.7f, 250, 252, 255, soft: true);
     }
 
     /// <summary>Smooth 1-D value noise in [-1, 1] from the hash (for small lumps in the snow).</summary>
@@ -170,7 +255,25 @@ internal static unsafe class Renderer
     public static void DrawGround(uint* px, int w, int h, SnowSim sim)
     {
         new Span<uint>(px, w * h).Clear();
-        if (sim.GroundOn) DrawPile(px, w, h, sim.Ground, (int)sim.Ground.AnchorY - h);
+        if (!sim.GroundOn) return;
+        _time = sim.Time;
+        _mat = sim.Material;
+        _scale = sim.UiScale;
+        _clip = false;
+        int yOff = (int)sim.Ground.AnchorY - h;
+        if (sim.MeadowOn && sim.Season is Season.Spring or Season.Summer) DrawMeadow(px, w, h, sim, yOff);
+        DrawPile(px, w, h, sim.Ground, yOff);
+        var ps = sim.Particles;
+        for (int n = 0; n < sim.Count; n++)
+        {
+            ref var p = ref ps[n];
+            if (p.Life > 0 && p.Surf == IntPtr.Zero) DrawParticle(px, w, h, ref p, yOff);
+        }
+        DrawSnowmen(px, w, h, sim, ground: true, yOff);
+        foreach (var c in sim.Critters)
+            if (c.State == 1 && c.OnGround) DrawButterfly(px, w, h, c, yOff);
+        if (sim.Vehicle != null) DrawVehicle(px, w, h, sim, sim.Vehicle, yOff);
+        _clip = false;
     }
 
     /// <param name="yOff">Screen y of the buffer's first row.</param>
@@ -178,6 +281,10 @@ internal static unsafe class Renderer
     {
         // Snow on a window touching the top of the screen sits above the screen: not visible.
         if (s.Cells == 0 || s.Clamped) return;
+        float maxH = 0;
+        for (int i = 0; i < s.Cells; i++) if (s.H[i] > maxH) maxH = s.H[i];
+        if (maxH < 0.05f) return;
+        Mark(s.Left - 12, s.AnchorY - yOff - maxH - 16 - 12 * Sprites.Scale, s.Right + 12, s.AnchorY - yOff + 8);
         const float Cell = SnowSim.Cell;
         int x0 = Math.Max(s.Left, 0), x1 = Math.Min(s.Right, w);
         for (int x = x0; x < x1; x++)
@@ -194,7 +301,7 @@ internal static unsafe class Renderer
             // smooth plastic blanket. Fixed relative to the window, so they ride along with it.
             int xr = x - s.Left;
             if (hh > 0.5f)
-                hh += (Noise1(s.Seed, xr / 9f) * 0.9f + Noise1(s.Seed + 5, xr / 4.5f) * 0.22f) * MathF.Min(1f, hh / 6f);
+                hh += (Noise1(s.Seed, xr / 9f) * 0.9f + Noise1(s.Seed + 5, xr / 4.5f) * (_mat == Material.Leaves ? 0.9f : 0.22f)) * MathF.Min(1f, hh / 6f);
 
             if (!s.IsGround)
             {
@@ -240,11 +347,11 @@ internal static unsafe class Renderer
                     // the base where it's packed against the window (ambient occlusion).
                     float grain = Grain[(xr * 7 ^ (int)depth * 13 ^ s.Seed) & 255];
                     if (bottom - yc < 2f) grain *= 0.95f;
-                    PileColor(px + y * w + x, depth, shade * grain, cov);
+                    PileColor(px + y * w + x, depth, shade * grain, cov, xr, s.Seed);
                 }
 
                 // Glints: the odd ice crystal on the surface catches the light and twinkles.
-                if (hh > 1.5f && start <= top + 0.5f && Hash01(xr, s.Seed ^ 0x5bd1) > 0.988f)
+                if (_mat == Material.Snow && hh > 1.5f && start <= top + 0.5f && Hash01(xr, s.Seed ^ 0x5bd1) > 0.988f)
                 {
                     float ph = Hash01(xr, s.Seed + 77) * 6.283f, fr = 1.2f + Hash01(xr, s.Seed + 91) * 2.5f;
                     float tw = MathF.Sin(_time * fr + ph);
@@ -286,12 +393,13 @@ internal static unsafe class Renderer
                 {
                     float cov = MathF.Min(y + 1, bottom) - MathF.Max(y, top);
                     if (cov <= 0) continue;
-                    PileColor(px + y * w + x, bottom - (y + 0.5f), shade, MathF.Min(cov, 1f));
+                    PileColor(px + y * w + x, bottom - (y + 0.5f), shade, MathF.Min(cov, 1f), xr, s.Seed);
                 }
             }
         }
 
-        if (!s.IsGround && yOff == 0)
+        if (_mat is Material.Leaves or Material.Petals) DrawFringe(px, w, h, s, yOff);
+        if (!s.IsGround && yOff == 0 && _mat != Material.Petals)
         {
             if (s.LinkL == null) DrawCornice(px, w, h, s, left: true);
             if (s.LinkR == null) DrawCornice(px, w, h, s, left: false);
@@ -332,7 +440,7 @@ internal static unsafe class Renderer
                 float yc = y + 0.5f;
                 float cov = Math.Clamp((yc - (top - 0.8f)) / 1.6f, 0f, 1f) * Math.Clamp(bottom - y, 0f, 1f);
                 if (cov <= 0.01f) continue;
-                PileColor(px + y * w + x, MathF.Max(0f, yc - top), 1f, cov);
+                PileColor(px + y * w + x, MathF.Max(0f, yc - top), 1f, cov, x - s.Left, s.Seed);
             }
         }
     }
@@ -348,6 +456,7 @@ internal static unsafe class Renderer
         float rawA = a.AnchorY - HeightAt(a, (ea + 0.5f) * Cell), rawB = b.AnchorY - HeightAt(b, (eb + 0.5f) * Cell);
         float topA = MathF.Max(rawA, rawB), topB = topA;
         if (a.AnchorY - topA < 0.5f && b.AnchorY - topB < 0.5f) return;
+        Mark(xa - 2, MathF.Min(topA, topB) - 2, xb + 2, MathF.Max(a.AnchorY, b.AnchorY) + 2);
         int x0 = Math.Max((int)MathF.Floor(xa), 0), x1 = Math.Min((int)MathF.Ceiling(xb), w);
         for (int x = x0; x < x1; x++)
         {
@@ -360,7 +469,7 @@ internal static unsafe class Renderer
             {
                 float cov = MathF.Min(y + 1, bottom) - MathF.Max(y, top);
                 if (cov <= 0) continue;
-                PileColor(px + y * w + x, y + 0.5f - top, 1f, MathF.Min(cov, 1f));
+                PileColor(px + y * w + x, y + 0.5f - top, 1f, MathF.Min(cov, 1f), x - a.Left, a.Seed);
             }
         }
     }
@@ -374,8 +483,10 @@ internal static unsafe class Renderer
         return s.H[a] + (s.H[b] - s.H[a]) * t;
     }
 
-    static void PileColor(uint* p, float depth, float shade, float cov)
+    static void PileColor(uint* p, float depth, float shade, float cov, int xr, int seed)
     {
+        if (_mat == Material.Leaves) { LeafColor(p, depth, shade, cov, xr, seed); return; }
+        if (_mat == Material.Petals) { PetalColor(p, depth, shade, cov, xr, seed); return; }
         // Lit surface only in the top few pixels; deeper snow is a uniform shadowed body.
         // The very top is bright and lit; deeper in, snow scatters blue light (thicker = bluer shade).
         shade = 1f + (shade - 1f) * Math.Clamp(1f - depth / 5f, 0f, 1f);
@@ -393,6 +504,7 @@ internal static unsafe class Renderer
         int x0 = Math.Max((int)MathF.Floor(cx - r - 1), 0), x1 = Math.Min((int)MathF.Ceiling(cx + r + 1), w);
         int y0 = Math.Max((int)MathF.Floor(cy - r - 1), 0), y1 = Math.Min((int)MathF.Ceiling(cy + r + 1), h);
         if (x0 >= x1 || y0 >= y1) return;
+        Mark(x0, y0, x1, y1);
         float rr = MathF.Max(r, 0.6f);
         float scale = r < 0.6f ? r / 0.6f : 1f;
         for (int y = y0; y < y1; y++)

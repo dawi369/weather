@@ -1,8 +1,10 @@
 name: Build
 
-# Every push to main builds WeatherSnow.exe and puts it on the "Latest build" release, so anyone can
+# Every push to main builds Windowsill.exe and puts it on the "Latest build" release, so anyone can
 # download it from the repo's Releases page (no sign-in needed):
-#   https://github.com/<owner>/<repo>/releases/latest/download/WeatherSnow.exe
+#   https://github.com/<owner>/<repo>/releases/latest/download/Windowsill.exe
+# The same exe is also attached as WeatherSnow.exe (the name before the rename), so copies of the
+# old version find it and update themselves.
 # Pushing a version tag (e.g. v1.0.0) also creates a permanent release for that version.
 
 on:
@@ -46,8 +48,8 @@ jobs:
       - name: Upload exe
         uses: actions/upload-artifact@v4
         with:
-          name: WeatherSnow
-          path: out/WeatherSnow.exe
+          name: Windowsill
+          path: out/Windowsill.exe
           if-no-files-found: error
 
       # Push to main: replace the "Latest build" release with this commit's exe.
@@ -59,14 +61,15 @@ jobs:
         run: |
           gh release delete latest --cleanup-tag --yes 2>$null
           $global:LASTEXITCODE = 0
-          $notes = "Built automatically from $env:GITHUB_SHA.`n`nDownload **WeatherSnow.exe** below and run it; the snowflake appears in your system tray. No install needed.`n`nWindows may warn that the app is from an unknown publisher: click **More info** → **Run anyway**."
-          gh release create latest out/WeatherSnow.exe --target $env:GITHUB_SHA --title "Latest build" --notes $notes --latest
+          $notes = "Built automatically from $env:GITHUB_SHA.`n`nDownload **Windowsill.exe** below and run it; it appears in your system tray. No install needed.`n`nWindows may warn that the app is from an unknown publisher: click **More info** → **Run anyway**."
+          Copy-Item out/Windowsill.exe out/WeatherSnow.exe
+          gh release create latest out/Windowsill.exe out/WeatherSnow.exe --target $env:GITHUB_SHA --title "Latest build" --notes $notes --latest
 
       # Version tag: a permanent release for that version.
       - name: Create version release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: out/WeatherSnow.exe
+          files: out/Windowsill.exe
           generate_release_notes: true
           make_latest: true
