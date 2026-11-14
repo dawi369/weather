@@ -379,9 +379,8 @@ internal static unsafe partial class Renderer
                 int cover = Coverage(c.X - r, c.Y - r, c.X + r, c.Y + r);
                 if (cover == 2) continue;
                 _clip = cover == 1;
-                Disc(px, w, h, c.X, c.Y, r * 1.6f, 0.08f * c.Glow, 170, 255, 90, soft: true);
-                Disc(px, w, h, c.X, c.Y, r, 0.26f * c.Glow, 190, 255, 110, soft: true);
-                Disc(px, w, h, c.X, c.Y, 3f * _scale, 0.35f * c.Glow, 220, 255, 150, soft: true);
+                Glow(px, w, h, c.X, c.Y, r * 2.2f, 0.42f * c.Glow, 190, 255, 110);
+                Glow(px, w, h, c.X, c.Y, r * 0.8f, 0.55f * c.Glow, 225, 255, 160);
                 Disc(px, w, h, c.X, c.Y, 1.2f * _scale, 0.95f * c.Glow, 255, 255, 205, soft: true);
                 continue;
             }
@@ -532,6 +531,33 @@ internal static unsafe partial class Renderer
                     Disc(px, w, h, x - 1.1f * s, y - 1.4f * s, 1.1f * s, 1f, 244, 110, 140, soft: true);
                     Disc(px, w, h, x + 1.1f * s, y - 1.4f * s, 1.1f * s, 1f, 244, 110, 140, soft: true);
                     break;
+            }
+        }
+    }
+}
+
+internal static unsafe partial class Renderer
+{
+    /// <summary>A soft light or puff: brightest in the middle, fading smoothly to nothing at r (no hard edge).</summary>
+    static void Glow(uint* px, int w, int h, float cx, float cy, float r, float alpha, float cr, float cg, float cb)
+    {
+        if (r < 0.5f || alpha <= 0.005f) return;
+        int x0 = Math.Max((int)MathF.Floor(cx - r), 0), x1 = Math.Min((int)MathF.Ceiling(cx + r), w);
+        int y0 = Math.Max((int)MathF.Floor(cy - r), 0), y1 = Math.Min((int)MathF.Ceiling(cy + r), h);
+        if (x0 >= x1 || y0 >= y1) return;
+        Mark(x0, y0, x1, y1);
+        float ir2 = 1f / (r * r);
+        for (int y = y0; y < y1; y++)
+        {
+            float dy = y + 0.5f - cy;
+            uint* row = px + y * w;
+            for (int x = x0; x < x1; x++)
+            {
+                float dx = x + 0.5f - cx;
+                float q = 1f - (dx * dx + dy * dy) * ir2;
+                if (q <= 0) continue;
+                if (_clip && Covered(x, y)) continue;
+                Blend(row + x, cr, cg, cb, alpha * q * q);
             }
         }
     }

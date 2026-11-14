@@ -58,6 +58,22 @@ internal sealed class WelcomeCard : Form
 
     protected override bool ShowWithoutActivation => true;
 
+    RectangleF CloseRect => new(Width - 34 * _k, 8 * _k, 26 * _k, 26 * _k);
+    bool _closeHover;
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        bool h = CloseRect.Contains(e.Location);
+        if (h != _closeHover) { _closeHover = h; Cursor = h ? Cursors.Hand : Cursors.Default; Invalidate(); }
+        base.OnMouseMove(e);
+    }
+
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        if (CloseRect.Contains(e.Location)) FadeOut();
+        base.OnMouseClick(e);
+    }
+
     int S(float v) => (int)MathF.Round(v * _k);
 
     void FadeOut()
@@ -78,7 +94,14 @@ internal sealed class WelcomeCard : Form
         var band = new RectangleF(0, 0, Width, 74 * k);
         using (var b = new System.Drawing.Drawing2D.LinearGradientBrush(band, top, bottom, 10f)) g.FillRectangle(b, band);
         using (var glyph = Sprites.SeasonGlyph(_season, S(44)))
-            g.DrawImage(glyph, Width - S(66), S(15));
+            g.DrawImage(glyph, Width - S(96), S(15));
+        // Close (x) in the corner.
+        using (var xp = new Pen(Color.FromArgb(_closeHover ? 255 : 190, 255, 255, 255), 1.6f * k))
+        {
+            var cr = CloseRect;
+            g.DrawLine(xp, cr.Left + 6 * k, cr.Top + 6 * k, cr.Right - 6 * k, cr.Bottom - 6 * k);
+            g.DrawLine(xp, cr.Right - 6 * k, cr.Top + 6 * k, cr.Left + 6 * k, cr.Bottom - 6 * k);
+        }
         using (var icon = Sprites.AppIcon(S(44)))
             g.DrawImage(icon, S(20), S(15));
         using var hf = Theme.Heading(14f);
@@ -88,7 +111,7 @@ internal sealed class WelcomeCard : Form
         using var soft = new SolidBrush(Color.FromArgb(225, 255, 255, 255));
         using var text = new SolidBrush(Color.FromArgb(214, 218, 228));
         g.DrawString($"{AppInfo.Name} is on", hf, white, S(74), S(14));
-        g.DrawString($"It's {SeasonInfo.Name(_season).ToLowerInvariant()}. Settings live in the tray, by the clock.", sf, soft,
+        g.DrawString($"It's {SeasonInfo.Name(_season).ToLowerInvariant()}. Settings are in the tray.", sf, soft,
                      new RectangleF(S(75), S(40), Width - S(150), S(32)));
 
         float y = 90 * k;
@@ -106,7 +129,8 @@ internal sealed class WelcomeCard : Form
                 g.DrawString(key, kf, white, kr.X + 5 * k, kr.Y + (kr.Height - sz.Height) / 2);
                 x = kr.Right + 4 * k;
             }
-            g.DrawString(what, tf, text, new RectangleF(x + 8 * k, y, Width - x - 28 * k, 22 * k),
+            float tx = 200 * k; // descriptions line up in a column
+            g.DrawString(what, tf, text, new RectangleF(tx, y, Width - tx - 16 * k, 22 * k),
                          new StringFormat { LineAlignment = StringAlignment.Center });
             y += 28 * k;
         }

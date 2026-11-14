@@ -134,6 +134,8 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
             Font = Theme.Font(10.5f, FontStyle.Bold), ForeColor = Theme.Text, Padding = new Padding(0, 6, 0, 6),
         });
         _menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()) { Font = Theme.Font(10f, FontStyle.Bold), Padding = pad });
+        _menu.Items.Add(new ToolStripSeparator());
 
         // The season's own things to do.
         void Act(string text, SeasonAction a) => _menu.Items.Add(new ToolStripMenuItem(text, null, (_, _) => Request(a)) { Padding = pad });
@@ -166,12 +168,9 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
         _menu.Items.Add(choose);
         _menu.Items.Add(new ToolStripSeparator());
 
-        _menu.Items.Add(new ToolStripMenuItem(_settings.Paused ? "Resume" : "Pause", null, (_, _) => { _settings.Paused = !_settings.Paused; _lockPaused = false; UpdateTrayIcon(); }) { Padding = pad });
-        _menu.Items.Add(new ToolStripMenuItem("Clear everything", null, (_, _) => ClearNow()) { Padding = pad });
-        _menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()) { Font = Theme.Font(10f, FontStyle.Bold), Padding = pad });
+        _menu.Items.Add(new ToolStripMenuItem(_settings.Paused ? "Resume the weather" : "Pause", null, (_, _) => { _settings.Paused = !_settings.Paused; _lockPaused = false; UpdateTrayIcon(); }) { Padding = pad });
+        _menu.Items.Add(new ToolStripMenuItem($"Clear the {SeasonInfo.Stuff(season)}", null, (_, _) => ClearNow()) { Padding = pad });
         _menu.Items.Add(new ToolStripSeparator());
-        _menu.Items.Add(new ToolStripMenuItem("Start with Windows", null, (_, _) => StartsWithWindows = !StartsWithWindows) { Checked = StartsWithWindows, Padding = pad });
-        _menu.Items.Add(new ToolStripMenuItem("Check for updates…", null, async (_, _) => await CheckForUpdatesAsync(interactive: true)) { Padding = pad });
         _menu.Items.Add(new ToolStripMenuItem("Quit", null, (_, _) => Exit()) { Padding = pad });
     }
 

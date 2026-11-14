@@ -17,7 +17,8 @@ internal interface IAppHost
 /// </summary>
 internal sealed class SettingsForm : Form
 {
-    readonly Settings _s;
+    Settings _s; // swapped for the defaults for a moment when building sliders (see Slide)
+    static readonly Settings Defaults = new();
     readonly IAppHost _host;
     readonly System.Windows.Forms.Timer _saveTimer = new() { Interval = 400 };
     readonly Panel _side, _content;
@@ -67,10 +68,10 @@ internal sealed class SettingsForm : Form
             y += S(44);
         }
 
-        var pause = new PillButton(_s.Paused ? "Resume" : "Pause") { Accent = PageAccent(0) };
+        var pause = new PillButton(_s.Paused ? "Resume the weather" : "Pause the weather") { Accent = PageAccent(0) };
         pause.Bounds = new Rectangle(S(20), 0, _side.Width - S(40), S(36));
         pause.Anchor = AnchorStyles.Left | AnchorStyles.Bottom | AnchorStyles.Right;
-        pause.Click += (_, _) => { _s.Paused = !_s.Paused; pause.Text = _s.Paused ? "Resume" : "Pause"; };
+        pause.Click += (_, _) => { _s.Paused = !_s.Paused; pause.Text = _s.Paused ? "Resume the weather" : "Pause the weather"; };
         _side.Controls.Add(pause);
         _side.Resize += (_, _) => pause.Top = _side.Height - S(62);
         pause.Top = ClientSize.Height - S(62);
@@ -106,9 +107,7 @@ internal sealed class SettingsForm : Form
         using var nb = new SolidBrush(Theme.Text);
         using var sb = new SolidBrush(Theme.Sub);
         g.DrawString(AppInfo.Name, nf, nb, S(70), S(28));
-        g.DrawString("Four seasons for your desktop", sf, sb, S(71), S(54));
-        using var faint = new SolidBrush(Theme.Faint);
-        g.DrawString("Changes apply instantly", sf, faint, S(22), _side.Height - S(90));
+        g.DrawString("Seasons for your desktop", sf, sb, S(71), S(54));
     }
 
     /// <summary>Switch to a page: its cards are built fresh (so they show the current state).</summary>
@@ -150,7 +149,9 @@ internal sealed class SettingsForm : Form
     {
         if (p.Controls.Count == 0) return;
         int pad = S(30);
-        int w = Math.Max(S(420), p.ClientSize.Width - pad * 2);
+        // Always leave room for the scrollbar, so pages are the same width whether they scroll or not.
+        int gutter = p.VerticalScroll.Visible ? 0 : SystemInformation.VerticalScrollBarWidth;
+        int w = Math.Max(S(420), p.ClientSize.Width - gutter - pad * 2);
         int y = S(26) + p.AutoScrollPosition.Y;
         foreach (Control c in p.Controls)
         {
@@ -178,7 +179,11 @@ internal sealed class SettingsForm : Form
 
     Row Slide(string title, string detail, int min, int max, Func<int> get, Action<int> set, Func<int, string> fmt)
     {
-        var s = new Slider(min, max, get()) { Format = fmt };
+        var saved = _s;
+        _s = Defaults;
+        int def = get();
+        _s = saved;
+        var s = new Slider(min, max, get()) { Format = fmt, Default = def };
         s.Changed += (_, _) => { set(s.Value); Changed(); };
         return new Row(title, detail, s, 280);
     }
@@ -191,10 +196,10 @@ internal sealed class SettingsForm : Form
         return new Row(title, detail, b, w);
     }
 
-    static Card Card(params Row[] rows)
+    static Card Card(params Row?[] rows)
     {
         var c = new Card();
-        foreach (var r in rows) c.Controls.Add(r);
+        foreach (var r in rows) if (r != null) c.Controls.Add(r);
         return c;
     }
 
@@ -205,7 +210,8 @@ internal sealed class SettingsForm : Form
     List<Control> GeneralPage(Color accent)
     {
         var now = _host.CurrentSeason;
-        string autoLine = $"Automatic follows the calendar: it's {SeasonInfo.Name(now).ToLowerInvariant()} where you are.";
+        string nowName = SeasonInfo.Name(now).ToLowerInvariant();
+        string autoLine = $"Automatic follows the calendar: it's {nowName} where you are.";
         var seasons = new Segmented(new[] { "Automatic", "Winter", "Spring", "Summer", "Autumn" }, (int)_s.Season)
         {
             AccentFor = i => i == 0 ? SeasonInfo.Accent(SeasonInfo.FromDate(DateTime.Now, _s.SouthernHemisphere)) : SeasonInfo.Accent((Season)(i - 1)),
@@ -221,46 +227,47 @@ internal sealed class SettingsForm : Form
 
         return new List<Control>
         {
-            new Hero(now, AppInfo.Name, SeasonInfo.Tagline(now)) { Badge = SeasonInfo.Name(now) },
+            new Hero(now, $"It's {nowName}", SeasonInfo.Tagline(now)) { Badge = _s.Season == SeasonChoice.Auto ? "By the calendar" : "Pinned" },
             new Caption("Season"),
             Card(seasonRow,
                  Toggle("Southern hemisphere", "Flip the calendar: winter in June, summer at Christmas.", () => _s.SouthernHemisphere, v => _s.SouthernHemisphere = v)),
             new Caption("Weather"),
             Card(Slide("Wind", "Which way it blows, and how hard.", -150, 150, () => _s.Wind, v => _s.Wind = v,
-                       v => v == 0 ? "calm" : v < 0 ? $"← {-v}" : $"{v} →"),
+                       v => v == 0 ? "calm" : v < 0 ? $"{-v} left" : $"{v} right"),
                  Slide("Gusts", "How much the wind comes and goes.", 0, 100, () => _s.Gusts, v => _s.Gusts = v, Pct),
                  Slide("Size", "Flakes, petals, leaves and seeds.", 40, 250, () => _s.FlakeSize, v => _s.FlakeSize = v, Pct),
                  Slide("Brightness", "How bold the falling things look.", 10, 100, () => _s.FlakeBrightness, v => _s.FlakeBrightness = v, Pct)),
             new Caption("Play"),
-            Card(Toggle("Play with Ctrl + Alt and the mouse", "Hold Ctrl+Alt to throw snowballs, build snowmen, kick leaves and more. Clicks pass through as normal otherwise.",
+            Card(Toggle("Play with Ctrl+Alt and the mouse", "Hold Ctrl+Alt to throw snowballs, build snowmen, kick leaves and more. Without them, clicks pass through as normal.",
                         () => _s.PlayWithMouse, v => _s.PlayWithMouse = v)),
             new Caption("Taskbar"),
             Card(Toggle("Things settle on the taskbar", "Snow, petals and leaves pile up along the top of the taskbar.", () => _s.TaskbarSnow, v => _s.TaskbarSnow = v),
                  Slide("Height on the taskbar", "Nudge it if it doesn't sit right on your taskbar.", -120, 120, () => -_s.TaskbarSnowOffset, v => _s.TaskbarSnowOffset = -v,
-                       v => v == 0 ? "auto" : v > 0 ? $"↑ {v}px" : $"↓ {-v}px"),
+                       v => v == 0 ? "auto" : v > 0 ? $"{v}px up" : $"{-v}px down"),
                  Slide("Clear everything every", "Start fresh now and then.", 0, 3600, () => _s.WipeSeconds, v => _s.WipeSeconds = v - v % 30,
                        v => v < 30 ? "never" : v < 60 ? $"{v - v % 30}s" : $"{v / 60} min"),
-                 Button("Clear everything now", "Sweep all windows and the taskbar.", "Clear", _host.ClearNow)),
+                 Button($"Clear the {SeasonInfo.Stuff(now)} now", "Sweep every window and the taskbar.", "Clear", _host.ClearNow)),
             new Caption("When to step aside"),
             Card(Toggle("When windows fill the screen", "A maximized window, or apps snapped side by side.", () => _s.HideWhenMaximized, v => _s.HideWhenMaximized = v),
-                 Toggle("In full-screen apps and games", "", () => _s.HideInFullscreen, v => _s.HideInFullscreen = v),
+                 Toggle("In full-screen apps and games", "Games, videos and presentations.", () => _s.HideInFullscreen, v => _s.HideInFullscreen = v),
                  Toggle("Battery saver", "On battery, run at 30 frames a second with a little less falling.", () => _s.BatterySaver, v => _s.BatterySaver = v),
-                 Toggle("Start with Windows", "", () => _host.StartsWithWindows, v => _host.StartsWithWindows = v)),
+                 Toggle("Start with Windows", "Begin the weather when you sign in.", () => _host.StartsWithWindows, v => _host.StartsWithWindows = v)),
         };
     }
 
     List<Control> SeasonPage(Season season, Color accent)
     {
         bool showing = _host.CurrentSeason == season;
-        bool forced = _s.Season == (SeasonChoice)((int)season + 1);
-        var hero = new Hero(season, SeasonInfo.Name(season), SeasonInfo.Tagline(season)) { Badge = showing ? "Showing now" : "" };
+        bool pinned = _s.Season == (SeasonChoice)((int)season + 1);
+        string name = SeasonInfo.Name(season);
+        var hero = new Hero(season, name, SeasonInfo.Tagline(season)) { Badge = showing ? "Showing now" : "Off-season" };
         var list = new List<Control> { hero };
 
-        Row preview = showing
-            ? forced
-                ? Button("Showing all the time", "You picked this season. Go back to following the calendar?", "Automatic", () => SetChoice(SeasonChoice.Auto))
-                : Button("Showing now", "It's the season on the calendar.", $"Keep {SeasonInfo.Name(season)}", () => SetChoice((SeasonChoice)((int)season + 1)))
-            : Button("Not this season yet", "See it now. You can switch back to automatic any time.", $"Show {SeasonInfo.Name(season)}", () => SetChoice((SeasonChoice)((int)season + 1)), primary: true);
+        Row preview = !showing
+            ? Button($"Preview {name}", "Show it now. Go back to following the calendar any time.", "Preview", () => SetChoice((SeasonChoice)((int)season + 1)), primary: true)
+            : pinned
+                ? Button($"Pinned to {name}", "You picked this season, so it stays whatever the date.", "Use calendar", () => SetChoice(SeasonChoice.Auto))
+                : Button("Following the calendar", $"Pin {name.ToLowerInvariant()} to keep it, whatever the date.", "Pin", () => SetChoice((SeasonChoice)((int)season + 1)));
 
         switch (season)
         {
@@ -269,14 +276,14 @@ internal sealed class SettingsForm : Form
                 list.Add(Card(preview,
                     Slide("Snowfall", "How much snow falls.", 0, 300, () => _s.WinterAmount, v => _s.WinterAmount = v, v => v == 0 ? "off" : Pct(v)),
                     Slide("Buildup", "How quickly it piles up.", 25, 400, () => _s.BuildupSpeed, v => _s.BuildupSpeed = v, Pct),
-                    Slide("Stickiness", "Runny powder or packing snow that stays put.", 0, 100, () => _s.Stickiness, v => _s.Stickiness = v,
+                    Slide("Stickiness", "Runny powder, or packing snow that stays put.", 0, 100, () => _s.Stickiness, v => _s.Stickiness = v,
                           v => v < 25 ? "powdery" : v < 60 ? Pct(v) : "sticky"),
-                    Slide("Deepest pile", "How deep snow can get on a window.", 6, 200, () => _s.MaxDepth, v => _s.MaxDepth = v, v => $"{v}px"),
+                    Slide("Deepest pile", "How deep snow can get on a window. Autumn's leaves share this.", 6, 200, () => _s.MaxDepth, v => _s.MaxDepth = v, v => $"{v}px"),
                     Slide("Fling", "How easily moving a window throws its snow.", 0, 100, () => _s.FlingSensitivity, v => _s.FlingSensitivity = v, Pct)));
                 list.Add(new Caption("The snowplough"));
                 list.Add(Card(
-                    Toggle("Plough the taskbar when it gets deep", "A little snowplough drives along and pushes the snow off the edge.", () => _s.AutoPlow, v => _s.AutoPlow = v),
-                    Button("Send the snowplough", showing ? "Clear the taskbar now." : "Available in winter.", "Send", () => _host.Request(SeasonAction.Plow), primary: showing)));
+                    Toggle("Plough the taskbar when it gets deep", "A little snowplough drives along and pushes the snow off the edge. The same switch sends the leaf blower in autumn.", () => _s.AutoPlow, v => _s.AutoPlow = v),
+                    showing ? Button("Send the snowplough", "Clear the taskbar now.", "Send", () => _host.Request(SeasonAction.Plow), primary: true) : null));
                 list.Add(new Caption("Play"));
                 list.Add(new Tip(("Ctrl+Alt+Drag", "Scoop snow off a ledge, roll it bigger, and throw it."),
                                  ("Ctrl+Alt+Click", "Throw it straight at the screen: splat."),
@@ -288,12 +295,12 @@ internal sealed class SettingsForm : Form
                 list.Add(Card(preview,
                     Slide("Blossom", "How many petals drift down.", 0, 300, () => _s.SpringAmount, v => _s.SpringAmount = v, v => v == 0 ? "off" : Pct(v)),
                     Toggle("Spring showers", "Every so often a shower passes over, with splashes on the ledges.", () => _s.Showers, v => _s.Showers = v),
-                    Button("Bring a shower", showing ? "Or stop the one that's falling." : "Available in spring.", "Shower", () => _host.Request(SeasonAction.Shower), primary: showing)));
+                    showing ? Button("Bring a shower", "Or stop the one that's falling.", "Shower", () => _host.Request(SeasonAction.Shower), primary: true) : null));
                 list.Add(new Caption("Life"));
                 list.Add(Card(
                     Toggle("Butterflies", "They wander across and rest on your windows. Get close and they're off.", () => _s.Butterflies, v => _s.Butterflies = v),
-                    Toggle("Meadow on the taskbar", "Fresh grass and spring flowers that sway in the wind.", () => _s.Meadow, v => _s.Meadow = v),
-                    Button("Release butterflies", showing ? "" : "Available in spring and summer.", "Release", () => _host.Request(SeasonAction.Critters))));
+                    Toggle("Meadow on the taskbar", "Fresh grass and spring flowers that sway in the wind. Summer shares this.", () => _s.Meadow, v => _s.Meadow = v),
+                    showing ? Button("Release butterflies", "A few more, right now.", "Release", () => _host.Request(SeasonAction.Critters)) : null));
                 list.Add(new Caption("Play"));
                 list.Add(new Tip(("Ctrl+Alt+Drag", "Sweep through the petals and scatter them."),
                                  ("Ctrl+Alt+Right-click", "Start or stop a shower.")));
@@ -303,12 +310,12 @@ internal sealed class SettingsForm : Form
                 list.Add(new Caption("Summer"));
                 list.Add(Card(preview,
                     Slide("Dandelion seeds", "How many drift by on the breeze.", 0, 300, () => _s.SummerAmount, v => _s.SummerAmount = v, v => v == 0 ? "off" : Pct(v)),
-                    Toggle("Meadow on the taskbar", "Tall grass with poppies, cornflowers and daisies.", () => _s.Meadow, v => _s.Meadow = v)));
+                    Toggle("Meadow on the taskbar", "Tall grass with poppies, cornflowers and daisies. Spring shares this.", () => _s.Meadow, v => _s.Meadow = v)));
                 list.Add(new Caption("Life"));
                 list.Add(Card(
-                    Toggle("Butterflies by day", "", () => _s.Butterflies, v => _s.Butterflies = v),
-                    Toggle("Fireflies after dusk", "From 8 in the evening. Hold the mouse still and they gather round.", () => _s.Fireflies, v => _s.Fireflies = v),
-                    Button("Call them now", showing ? "Butterflies by day, fireflies at night." : "Available in summer.", "Call", () => _host.Request(SeasonAction.Critters), primary: showing)));
+                    Toggle("Butterflies by day", "They rest on your windows and flit off if the mouse comes near.", () => _s.Butterflies, v => _s.Butterflies = v),
+                    Toggle("Fireflies after dusk", "Hold the mouse still and they gather round it.", () => _s.Fireflies, v => _s.Fireflies = v),
+                    showing ? Button("Call them now", "Butterflies by day, fireflies at night.", "Call", () => _host.Request(SeasonAction.Critters), primary: true) : null));
                 list.Add(new Caption("Play"));
                 list.Add(new Tip(("Ctrl+Alt+Drag", "Blow a dandelion clock: seeds float off the mouse."),
                                  ("Ctrl+Alt+Right-click", "Release a butterfly (or a handful of fireflies at night).")));
@@ -318,13 +325,13 @@ internal sealed class SettingsForm : Form
                 list.Add(new Caption("Leaves"));
                 list.Add(Card(preview,
                     Slide("Falling leaves", "How many come down.", 0, 300, () => _s.AutumnAmount, v => _s.AutumnAmount = v, v => v == 0 ? "off" : Pct(v)),
-                    Slide("Deepest pile", "Leaves pile a little less deep than snow.", 6, 200, () => _s.MaxDepth, v => _s.MaxDepth = v, v => $"{v}px"),
+                    Slide("Deepest pile", "How deep leaves can pile. Shared with winter's snow.", 6, 200, () => _s.MaxDepth, v => _s.MaxDepth = v, v => $"{v}px"),
                     Toggle("Dust devils", "Now and then a little whirlwind spins the leaves up off the taskbar.", () => _s.DustDevils, v => _s.DustDevils = v)));
                 list.Add(new Caption("The leaf blower"));
                 list.Add(Card(
-                    Toggle("Clear the taskbar when it gets deep", "A leaf blower trundles along and sends them flying.", () => _s.AutoPlow, v => _s.AutoPlow = v),
-                    Button("Send the leaf blower", showing ? "Clear the taskbar now." : "Available in autumn.", "Send", () => _host.Request(SeasonAction.Plow), primary: showing),
-                    Button("Whip up a dust devil", showing ? "" : "Available in autumn.", "Whirl", () => _host.Request(SeasonAction.Gust))));
+                    Toggle("Clear the taskbar when it gets deep", "A leaf blower trundles along and sends them flying. The same switch sends the snowplough in winter.", () => _s.AutoPlow, v => _s.AutoPlow = v),
+                    showing ? Button("Send the leaf blower", "Clear the taskbar now.", "Send", () => _host.Request(SeasonAction.Plow), primary: true) : null,
+                    showing ? Button("Whip up a dust devil", "Somewhere along the taskbar.", "Whirl", () => _host.Request(SeasonAction.Gust)) : null));
                 list.Add(new Caption("Play"));
                 list.Add(new Tip(("Ctrl+Alt+Drag", "Kick through the leaves and send them flying."),
                                  ("Ctrl+Alt+Right-click", "Start a dust devil right there.")));
@@ -343,14 +350,15 @@ internal sealed class SettingsForm : Form
 
     List<Control> AboutPage(Color accent)
     {
-        string version = Updater.BuildCommit is string c ? $"{AppInfo.Version} · build {c[..7]}" : $"{AppInfo.Version} · built on this PC";
+        string version = $"Version {AppInfo.Version}";
+        string build = Updater.BuildCommit is string c ? $"Build {c[..7]}. Keeps itself up to date." : "Built on this PC, so it doesn't update itself.";
         return new List<Control>
         {
             new Hero(null, AppInfo.Name, "Four seasons for your desktop. Snow, blossom, summer meadows and autumn leaves that settle on your windows.", Sprites.AppIcon(S(128))),
             new Caption("Version"),
-            Card(new Row("Version", version, null, 0),
-                 Toggle("Check for updates once a day", "Updates download from GitHub and install in a few seconds.", () => _s.CheckForUpdates, v => _s.CheckForUpdates = v),
-                 Button("Check for updates", "", "Check now", () => _ = _host.CheckForUpdatesAsync(interactive: true))),
+            Card(new Row(version, build, null, 0),
+                 Toggle("Check for updates once a day", "New versions install quietly in a few seconds, after asking you.", () => _s.CheckForUpdates, v => _s.CheckForUpdates = v),
+                 Button("Check for updates", "See if there's a newer version now.", "Check now", () => _ = _host.CheckForUpdatesAsync(interactive: true))),
             new Caption("Help"),
             Card(Button("Diagnostics", "What the app sees: screen, taskbar and scaling. Handy if things sit in the wrong place.", "Open", _host.OpenDiagnostics),
                  Button("Reset all settings", "Back to how it was when you first installed it.", "Reset", () =>

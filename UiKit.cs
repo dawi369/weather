@@ -126,7 +126,7 @@ internal sealed class ToggleSwitch : KitControl
         using (var p = Theme.Round(r, r.Height / 2))
         using (var b = new SolidBrush(Theme.Mix(off, Accent, _pos)))
             g.FillPath(b, p);
-        if (Focused)
+        if (Focused && ShowFocusCues)
         {
             using var fp = Theme.Round(RectangleF.Inflate(r, 2.5f * k, 2.5f * k), r.Height);
             using var pen = new Pen(Color.FromArgb(160, Accent), 1.2f * k);
@@ -149,6 +149,8 @@ internal sealed class Slider : KitControl
     int _min, _max = 100, _value;
     bool _drag;
     public Func<int, string> Format = v => v.ToString();
+    /// <summary>The default value, marked on the track.</summary>
+    public int? Default;
     public event EventHandler? Changed;
 
     public Slider(int min, int max, int value) { _min = min; _max = max; _value = Math.Clamp(value, min, max); TabStop = true; }
@@ -197,9 +199,16 @@ internal sealed class Slider : KitControl
         float a = MathF.Min(zero, f), bnd = MathF.Max(zero, f);
         var fill = new RectangleF(t.X + t.Width * a, t.Y, MathF.Max(t.Width * (bnd - a), 0.5f), t.Height);
         using (var p = Theme.Round(fill, t.Height / 2)) using (var b = new SolidBrush(Accent)) g.FillPath(b, p);
+        if (Default is int dv && _max > _min)
+        {
+            // A small mark where the default sits, so the scale reads honestly.
+            float dx = t.X + t.Width * (dv - _min) / (_max - _min);
+            using var tick = new SolidBrush(Color.FromArgb(150, 210, 214, 224));
+            g.FillRectangle(tick, dx - 1 * k, t.Y - 4 * k, 2 * k, t.Height + 8 * k);
+        }
         float d = (Hover || _drag ? 18 : 16) * k;
         float cx = t.X + t.Width * f;
-        if (Focused)
+        if (Focused && ShowFocusCues)
         {
             using var ring = new SolidBrush(Color.FromArgb(70, Accent));
             g.FillEllipse(ring, cx - d / 2 - 4 * k, Height / 2f - d / 2 - 4 * k, d + 8 * k, d + 8 * k);
@@ -272,7 +281,7 @@ internal sealed class Segmented : KitControl
             using var tb = new SolidBrush(i == _sel ? Color.FromArgb(20, 22, 28) : Theme.Text);
             g.DrawString(_items[i], i == _sel ? bold : font, tb, cell, sf);
         }
-        if (Focused)
+        if (Focused && ShowFocusCues)
         {
             using var p = Theme.Round(RectangleF.Inflate(r, -1, -1), 9 * k);
             using var pen = new Pen(Color.FromArgb(150, Accent), 1.2f * k);
@@ -322,7 +331,7 @@ internal sealed class PillButton : KitControl
             using var pen = new Pen(Theme.Line, 1f);
             g.DrawPath(pen, p);
         }
-        if (Focused)
+        if (Focused && ShowFocusCues)
         {
             using var fp = Theme.Round(RectangleF.Inflate(r, -2 * k, -2 * k), r.Height / 2);
             using var pen = new Pen(Color.FromArgb(180, Primary ? Color.White : Accent), 1.2f * k);

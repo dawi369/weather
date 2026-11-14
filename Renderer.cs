@@ -122,7 +122,7 @@ internal static unsafe partial class Renderer
                 {
                     // A sunlit pollen mote: a tiny warm twinkle.
                     float tw = 0.5f + 0.5f * MathF.Sin(p.Age * 3f + p.Phase);
-                    Disc(px, w, h, p.X, py, 3f * _scale, 0.12f * a * tw, 255, 226, 150, soft: true);
+                    Glow(px, w, h, p.X, py, 4f * _scale, 0.22f * a * tw, 255, 226, 150);
                     Disc(px, w, h, p.X, py, 0.7f * _scale, 0.8f * a * tw, 255, 240, 200, soft: true);
                     break;
                 }
@@ -146,7 +146,7 @@ internal static unsafe partial class Renderer
             case PKind.Smoke:
             {
                 float k = p.Age / MathF.Max(p.Fade, 0.01f);
-                Disc(px, w, h, p.X, py, p.R, p.Alpha * k * k, 168, 170, 176, soft: true);
+                Glow(px, w, h, p.X, py, p.R * 1.6f, p.Alpha * k * k * 1.2f, 168, 170, 176);
                 break;
             }
         }

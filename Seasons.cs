@@ -43,6 +43,15 @@ internal static class SeasonInfo
 
     public static string Name(Season s) => s.ToString();
 
+    /// <summary>What lies about in a season, for "Clear the …".</summary>
+    public static string Stuff(Season s) => s switch
+    {
+        Season.Winter => "snow",
+        Season.Spring => "petals",
+        Season.Summer => "seeds",
+        _ => "leaves",
+    };
+
     public static string Tagline(Season s) => s switch
     {
         Season.Winter => "Snow that settles, drifts and slides off your windows.",
@@ -63,8 +72,8 @@ internal static class SeasonInfo
     public static (Color Top, Color Bottom) Sky(Season s) => s switch
     {
         Season.Winter => (Color.FromArgb(28, 44, 78), Color.FromArgb(70, 108, 160)),
-        Season.Spring => (Color.FromArgb(70, 44, 92), Color.FromArgb(214, 128, 158)),
-        Season.Summer => (Color.FromArgb(30, 72, 120), Color.FromArgb(244, 168, 74)),
+        Season.Spring => (Color.FromArgb(104, 52, 104), Color.FromArgb(226, 128, 164)),
+        Season.Summer => (Color.FromArgb(24, 84, 140), Color.FromArgb(70, 158, 204)),
         _ => (Color.FromArgb(52, 30, 30), Color.FromArgb(196, 98, 44)),
     };
 }

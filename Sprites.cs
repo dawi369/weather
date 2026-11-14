@@ -373,7 +373,10 @@ internal static class Sprites
                     CenterPoint = new PointF(cx - r * 0.35f, cy - r * 0.4f),
                 };
                 g.FillPath(b, path);
+                using var rim = new Pen(Color.FromArgb(80, 110, 132, 170), 0.7f); // keeps it readable on white windows
+                g.DrawPath(rim, path);
             }
+            using (var shade = new SolidBrush(Color.FromArgb(55, 40, 60, 100))) g.FillEllipse(shade, 6f, 44.2f, 22f, 3.6f); // shadow on the snow
             Ball(17, 37, 10);  // base
             Ball(17, 22.5f, 7.5f);
             Ball(17, 11.5f, 5.8f);
@@ -390,7 +393,7 @@ internal static class Sprites
             g.FillEllipse(coal, 16.5f, 15.2f, 1.0f, 1.0f);
             g.FillEllipse(coal, 18.0f, 14.6f, 1.0f, 1.0f);
             using var carrot = new SolidBrush(Color.FromArgb(240, 126, 36));
-            g.FillPolygon(carrot, new[] { new PointF(17, 12.3f), new PointF(17, 13.9f), new PointF(22.5f, 13.4f) });
+            g.FillPolygon(carrot, new[] { new PointF(17, 12.3f), new PointF(17, 13.9f), new PointF(24f, 13.6f) });
             using var scarfB = new SolidBrush(scarf);
             g.FillRectangle(scarfB, 11.6f, 16.0f, 10.8f, 2.4f);
             g.FillPolygon(scarfB, new[] { new PointF(19.4f, 17.6f), new PointF(21.8f, 17.6f), new PointF(22.4f, 23.6f), new PointF(20.2f, 23.4f) });
@@ -530,8 +533,8 @@ internal static class Sprites
             }
             case Season.Summer:
             {
-                using var ray = new Pen(Color.FromArgb(255, 255, 196, 40), 2.6f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
-                using var rayOut = new Pen(Color.FromArgb(shadow ? 170 : 0, 120, 70, 0), 4.4f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                using var ray = new Pen(Color.FromArgb(255, 255, 196, 40), 3.4f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                using var rayOut = new Pen(Color.FromArgb(shadow ? 170 : 0, 120, 70, 0), 5.4f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
                 foreach (var pen in new[] { rayOut, ray })
                     for (int i = 0; i < 8; i++)
                     {
@@ -550,11 +553,11 @@ internal static class Sprites
                 using var fillB = new LinearGradientBrush(new PointF(-12, -12), new PointF(12, 12), Color.FromArgb(255, 255, 170, 60), Color.FromArgb(255, 214, 66, 30));
                 g.FillPath(fillB, path);
                 using var vein = new Pen(Color.FromArgb(160, 140, 40, 16), 1.1f);
-                g.DrawLine(vein, 0, 13, 0, -10);
+                g.DrawLine(vein, 0, 6, 0, -10);
                 g.DrawLine(vein, 0, 3, -8, -5);
                 g.DrawLine(vein, 0, 3, 8, -5);
-                using var stem = new Pen(Color.FromArgb(255, 140, 70, 30), 1.6f);
-                g.DrawLine(stem, 0, 12.5f, 1, 16);
+                using var stem = new Pen(Color.FromArgb(255, 140, 70, 30), 2.2f);
+                g.DrawLine(stem, 0, 5.5f, 0.6f, 11.5f);
                 break;
             }
         }
@@ -577,7 +580,7 @@ internal static class Sprites
         using (var tile = RoundRect(8, 8, 240, 240, 54))
         using (var bg = new LinearGradientBrush(new PointF(0, 8), new PointF(0, 248), Color.FromArgb(34, 46, 86), Color.FromArgb(18, 24, 44)))
             g.FillPath(bg, tile);
-        using (var rim = new Pen(Color.FromArgb(60, 255, 255, 255), 3)) using (var tile = RoundRect(9.5f, 9.5f, 237, 237, 53)) g.DrawPath(rim, tile);
+        using (var rim = new Pen(Color.FromArgb(size < 40 ? 150 : 60, 255, 255, 255), size < 40 ? 9 : 3)) using (var tile = RoundRect(9.5f, 9.5f, 237, 237, 53)) g.DrawPath(rim, tile);
 
         // Small sizes: a bigger window with plain colour panes (glyphs would just be mush).
         bool small = size < 40;
