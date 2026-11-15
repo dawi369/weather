@@ -459,7 +459,7 @@ internal static unsafe partial class Renderer
         {
             float hx = Hash01(bx, 7771), hy = Hash01(bx, 9133), hz = Hash01(bx, 4211);
             float x = bx + hx * 3f;
-            float H = (summer ? 7f + 11f * hy : 4f + 7f * hy) * s;
+            float H = (summer ? 7f + 11f * hy : 6f + 9f * hy) * s;
             float sway = (wind * 0.045f + MathF.Sin(_time * 1.6f + x * 0.021f) * 1.2f + MathF.Sin(_time * 2.7f + x * 0.05f + hz * 6f) * 0.5f) * (H / (12f * s));
             float cdx = x - sim.CursorX;
             if (MathF.Abs(cdx) < 55f && cy > baseY - H - 30f && cy < baseY + 12f)
@@ -467,7 +467,7 @@ internal static unsafe partial class Renderer
             if (v != null && MathF.Abs(x - v.X) < v.W * 0.55f) H *= 0.25f;
             float vary = (0.82f + 0.3f * hz) * night;
             Blade(px, w, h, x, baseY, H, sway, 1.5f * s, br * vary, bg * vary, bb * vary, tr * vary, tg * vary, tb * vary);
-            if (hz > 0.982f)
+            if (hz > (summer ? 0.982f : 0.966f))
             {
                 float fh = H * 1.4f + 4f * s;
                 float fs = sway * 1.3f;
@@ -594,7 +594,7 @@ internal static unsafe partial class Renderer
                 if (cover == 2) continue;
                 _clip = cover == 1;
             }
-            float k = robin ? 1.6f : 2f; // a touch bigger than life, so they read at a glance
+            float k = robin ? 1.6f : 2.6f; // a touch bigger than life, so they read at a glance
             Blit(px, w, h, img, v.X, v.Y - yOff, v.Dir * k, k, 1f, 0f, pivotY: robin ? 0.98f : 0.99f);
         }
         _clip = false;
@@ -635,7 +635,7 @@ internal static unsafe partial class Renderer
 {
     static readonly float[,] Spectrum =
     {
-        { 255, 64, 64 }, { 255, 150, 48 }, { 255, 230, 84 }, { 92, 214, 96 }, { 72, 146, 255 }, { 150, 96, 232 },
+        { 255, 110, 110 }, { 255, 180, 90 }, { 255, 240, 130 }, { 140, 230, 140 }, { 120, 180, 255 }, { 190, 140, 250 },
     };
 
     /// <summary>
@@ -647,7 +647,7 @@ internal static unsafe partial class Renderer
         float t = sim.Rainbow;
         if (t <= 0) return;
         float age = SnowSim.RainbowLife - t;
-        float alpha = MathF.Min(1f, age / 5f) * MathF.Min(1f, t / 8f) * 0.4f;
+        float alpha = MathF.Min(1f, age / 5f) * MathF.Min(1f, t / 8f) * 0.55f;
         if (alpha <= 0.003f) return;
         float cx = w * 0.58f, cy = h * 1.32f, R = h * 1.14f, B = h * 0.055f;
         float rIn = R - B;

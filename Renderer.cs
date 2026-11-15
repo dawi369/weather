@@ -103,7 +103,7 @@ internal static unsafe partial class Renderer
                 else Crystal(px, w, h, p.X, py, ref p, a);
                 break;
             }
-            case PKind.Clump: Disc(px, w, h, p.X, py, p.R, p.Alpha, 236, 242, 252, soft: false); break;
+            case PKind.Clump: Disc(px, w, h, p.X, py, p.R, p.Alpha, 226, 234, 248, soft: false); break;
             case PKind.Powder: Disc(px, w, h, p.X, py, p.R, p.Alpha, 250, 252, 255, soft: true); break;
             case PKind.Leaf:
             {
@@ -134,7 +134,7 @@ internal static unsafe partial class Renderer
                 {
                     // A sunlit pollen mote: a tiny warm twinkle.
                     float tw = 0.5f + 0.5f * MathF.Sin(p.Age * 3f + p.Phase);
-                    Glow(px, w, h, p.X, py, 5.5f * _scale, 0.38f * a * tw, 255, 222, 140);
+                    Glow(px, w, h, p.X, py, 7f * _scale, 0.6f * a * tw, 255, 222, 140);
                     Disc(px, w, h, p.X, py, 0.7f * _scale, 0.8f * a * tw, 255, 240, 200, soft: true);
                     break;
                 }

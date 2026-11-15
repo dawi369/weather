@@ -89,6 +89,8 @@ internal sealed partial class SnowSim
     float _critterTimer = 12f, _devilTimer = 150f, _plowCheck = 10f, _plowCooldown;
     float _prevCX, _prevCY;
     public float CursorStill { get; private set; }
+    /// <summary>The mouse is over a window (so things behind it can't come to it).</summary>
+    public bool CursorOverWindow { get; private set; }
 
     void ClearPlay()
     {
@@ -107,6 +109,9 @@ internal sealed partial class SnowSim
 
         float moved = MathF.Abs(CursorX - _prevCX) + MathF.Abs(CursorY - _prevCY);
         CursorStill = moved < 3f ? CursorStill + dt : 0f;
+        CursorOverWindow = false;
+        foreach (var s in Z)
+            if (CursorX >= s.Left && CursorX < s.Right && CursorY >= s.Top && CursorY < s.Bottom) { CursorOverWindow = true; break; }
         _prevCX = CursorX; _prevCY = CursorY;
 
         UpdateSnowmen(dt);
@@ -806,7 +811,10 @@ internal sealed partial class SnowSim
         }
 
         f.Timer -= dt;
-        bool gather = CursorStill > 1.2f && CursorX > -1000;
+        // They come to a mouse resting on the open desktop nearby, for a while, then lose interest.
+        float gdx = f.X - CursorX, gdy = f.Y - CursorY;
+        bool gather = CursorStill > 1.2f && CursorStill < 20f && CursorX > -1000 && !CursorOverWindow
+                      && gdx * gdx + gdy * gdy < 500f * 500f;
         if (gather)
         {
             float a = f.Phase + f.Age * 0.4f;
@@ -818,7 +826,7 @@ internal sealed partial class SnowSim
         {
             f.Timer = R(2f, 6f);
             f.TX = Math.Clamp(f.X + R(-160f, 160f), 0f, ScreenW);
-            f.TY = Math.Clamp(f.Y + R(-90f, 90f), ScreenH * 0.2f, Ground.AnchorY - 6f);
+            f.TY = Math.Clamp(f.Y + R(-90f, 90f), ScreenH * 0.2f, Ground.AnchorY - 40f);
             // Now and then one drifts up to hover along a window's top edge.
             if (Z.Count > 0 && R() < 0.3f)
             {
@@ -978,7 +986,7 @@ internal sealed partial class SnowSim
             foreach (var c in Critters) if (c.Firefly && c.State != 2) have++;
             int want = (int)(34 * MathF.Min(1.5f, Amount));
             if (have < want && R() < dt * 6f)
-                AddFirefly(R(0f, ScreenW), Ground.AnchorY - R(4f, 40f), R(240f, 600f));
+                AddFirefly(R(0f, ScreenW), Ground.AnchorY - R(40f, ScreenH * 0.45f), R(240f, 600f));
         }
 
         _devilTimer -= dt;
