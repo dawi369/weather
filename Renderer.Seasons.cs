@@ -447,6 +447,7 @@ internal static unsafe partial class Renderer
     static void DrawMeadow(uint* px, int w, int h, SnowSim sim, int yOff)
     {
         bool summer = sim.Season == Season.Summer;
+        _bloomMoon = sim.Night ? 1f : 0f;
         float night = sim.Night ? 0.42f : 1f; // the meadow darkens after dusk
         float baseY = sim.Ground.AnchorY - yOff;
         float wind = sim.Wind, cy = sim.CursorY - yOff;
@@ -511,17 +512,17 @@ internal static unsafe partial class Renderer
             for (int k = 0; k < n; k++)
             {
                 float a = rot + k * 6.283f / n;
-                Disc(px, w, h, x + MathF.Cos(a) * dist * s, y + MathF.Sin(a) * dist * s * 0.8f, r * s, 0.97f, cr, cg, cb, soft: true);
+                MoonDisc(px, w, h, x + MathF.Cos(a) * dist * s, y + MathF.Sin(a) * dist * s * 0.8f, r * s, 0.97f, cr, cg, cb, soft: true);
             }
         }
         if (summer)
         {
             switch (kind)
             {
-                case 0: Ring(4, 1.2f, 1.9f, 214, 40, 30); Disc(px, w, h, x, y, 0.9f * s, 1f, 40, 20, 24, soft: true); break;   // poppy
-                case 1: Ring(7, 1.8f, 1.0f, 76, 112, 232); Disc(px, w, h, x, y, 0.8f * s, 1f, 50, 60, 140, soft: true); break; // cornflower
-                case 2: Ring(6, 2.0f, 1.2f, 250, 250, 244); Disc(px, w, h, x, y, 1.1f * s, 1f, 248, 196, 40, soft: true); break; // daisy
-                default: Ring(5, 1.4f, 1.2f, 255, 214, 40); Disc(px, w, h, x, y, 0.8f * s, 1f, 236, 156, 20, soft: true); break; // buttercup
+                case 0: Ring(4, 1.2f, 1.9f, 214, 40, 30); MoonDisc(px, w, h, x, y, 0.9f * s, 1f, 40, 20, 24, soft: true); break;   // poppy
+                case 1: Ring(7, 1.8f, 1.0f, 76, 112, 232); MoonDisc(px, w, h, x, y, 0.8f * s, 1f, 50, 60, 140, soft: true); break; // cornflower
+                case 2: Ring(6, 2.0f, 1.2f, 250, 250, 244); MoonDisc(px, w, h, x, y, 1.1f * s, 1f, 248, 196, 40, soft: true); break; // daisy
+                default: Ring(5, 1.4f, 1.2f, 255, 214, 40); MoonDisc(px, w, h, x, y, 0.8f * s, 1f, 236, 156, 20, soft: true); break; // buttercup
             }
         }
         else
@@ -529,16 +530,16 @@ internal static unsafe partial class Renderer
             switch (kind)
             {
                 case 0: // crocus
-                    Disc(px, w, h, x, y + 0.8f * s, 1.5f * s, 1f, 150, 92, 210, soft: true);
-                    Disc(px, w, h, x, y - 1f * s, 1.3f * s, 1f, 172, 118, 228, soft: true);
-                    Disc(px, w, h, x, y - 2.4f * s, 0.9f * s, 1f, 196, 150, 240, soft: true);
+                    MoonDisc(px, w, h, x, y + 0.8f * s, 1.5f * s, 1f, 150, 92, 210, soft: true);
+                    MoonDisc(px, w, h, x, y - 1f * s, 1.3f * s, 1f, 172, 118, 228, soft: true);
+                    MoonDisc(px, w, h, x, y - 2.4f * s, 0.9f * s, 1f, 196, 150, 240, soft: true);
                     break;
-                case 1: Ring(5, 1.6f, 1.3f, 252, 238, 130); Disc(px, w, h, x, y, 0.9f * s, 1f, 240, 170, 40, soft: true); break; // primrose
-                case 2: Ring(6, 2.0f, 1.2f, 250, 250, 244); Disc(px, w, h, x, y, 1.1f * s, 1f, 248, 196, 40, soft: true); break; // daisy
+                case 1: Ring(5, 1.6f, 1.3f, 252, 238, 130); MoonDisc(px, w, h, x, y, 0.9f * s, 1f, 240, 170, 40, soft: true); break; // primrose
+                case 2: Ring(6, 2.0f, 1.2f, 250, 250, 244); MoonDisc(px, w, h, x, y, 1.1f * s, 1f, 248, 196, 40, soft: true); break; // daisy
                 default: // tulip
-                    Disc(px, w, h, x, y, 2.0f * s, 1f, 232, 78, 112, soft: true);
-                    Disc(px, w, h, x - 1.1f * s, y - 1.4f * s, 1.1f * s, 1f, 244, 110, 140, soft: true);
-                    Disc(px, w, h, x + 1.1f * s, y - 1.4f * s, 1.1f * s, 1f, 244, 110, 140, soft: true);
+                    MoonDisc(px, w, h, x, y, 2.0f * s, 1f, 232, 78, 112, soft: true);
+                    MoonDisc(px, w, h, x - 1.1f * s, y - 1.4f * s, 1.1f * s, 1f, 244, 110, 140, soft: true);
+                    MoonDisc(px, w, h, x + 1.1f * s, y - 1.4f * s, 1.1f * s, 1f, 244, 110, 140, soft: true);
                     break;
             }
         }
@@ -726,14 +727,17 @@ internal static unsafe partial class Renderer
         float sc = MathF.Max(1f, _scale * 0.7f);
         // At night the grass catches a little moonlight: dimmer and bluer, not black.
         float night = sim.Night ? 0.7f : 1f, moon = sim.Night ? 70f : 0f;
+        _bloomMoon = sim.Night ? 1f : 0f;
         int step = Math.Max(4, (int)(8f * sc));
         int width = s.Right - s.Left;
         float baseY = s.AnchorY;
-        Mark(s.Left - 8, baseY - 32f * sc, s.Right + 8, baseY + 1);
+        Mark(s.Left - 12, baseY - 46f * sc, s.Right + 12, baseY + 1);
         for (int xr = step / 2; xr < width - step / 2; xr += step)
         {
             float hA = Hash01(xr, s.Seed + 501);
-            if (hA < 0.22f) continue; // gaps between the tufts
+            // Tufts grow in clumps with bare stretches between them, taller where they are thickest.
+            float clump = 0.5f + 0.5f * Noise1(s.Seed + 509, xr / (70f * sc));
+            if (hA > 0.15f + clump) continue;
             float x = s.Left + xr + (Hash01(xr, s.Seed + 502) - 0.5f) * step * 0.6f;
             if (x < 0 || x >= w) continue;
             int col = Math.Clamp((int)((x - s.Left) / SnowSim.Cell), 0, s.Cells - 1);
@@ -743,7 +747,7 @@ internal static unsafe partial class Renderer
             for (int b = 0; b < blades; b++)
             {
                 float bx = x + (b - blades / 2f) * 1.6f * sc;
-                float bh = (5.5f + 8f * Hash01(xr * 7 + b, s.Seed + 504)) * sc;
+                float bh = (5.5f + 8f * Hash01(xr * 7 + b, s.Seed + 504)) * sc * (0.7f + 0.6f * clump);
                 float lean = sway + (b - blades / 2f) * 0.9f * sc;
                 float v = 0.85f + 0.3f * Hash01(xr + b, s.Seed + 505);
                 Blade(px, w, h, bx, baseY, bh, lean, 1.4f * sc, 66 * v * night, 122 * v * night, 46 * v * night + moon, 168 * v * night, 210 * v * night, 92 * v * night + moon);
@@ -751,9 +755,10 @@ internal static unsafe partial class Renderer
             float fl = Hash01(xr, s.Seed + 506);
             if (fl > 0.72f)
             {
-                float fh = (12f + 8f * Hash01(xr, s.Seed + 507)) * sc;
+                bool hero = fl > 0.95f; // now and then a tall one stands well above the rest
+                float fh = (hero ? 26f + 10f * Hash01(xr, s.Seed + 507) : 12f + 8f * Hash01(xr, s.Seed + 507)) * sc;
                 Blade(px, w, h, x, baseY, fh, sway * 1.4f, 0.8f * sc, 50 * night, 100 * night, 40 * night, 80 * night, 140 * night, 60 * night);
-                Bloom(px, w, h, x + sway * 1.4f, baseY - fh, (int)(Hash01(xr, s.Seed + 508) * 3.999f), true, sc * 1.8f);
+                Bloom(px, w, h, x + sway * 1.4f, baseY - fh, (int)(Hash01(xr, s.Seed + 508) * 3.999f), true, sc * (hero ? 2.4f : 1.8f));
                 if (sim.Night) Glow(px, w, h, x + sway * 1.4f, baseY - fh, 4f * sc, 0.25f, 210, 225, 255); // pale in the moonlight
             }
         }
@@ -774,5 +779,23 @@ internal static unsafe partial class Renderer
             Blit(px, w, h, img, b.X, b.Y, b.Dir * k, k, 1f);
         }
         _clip = false;
+    }
+}
+
+internal static unsafe partial class Renderer
+{
+    /// <summary>1 at night: flowers drawn now are seen by moonlight (paler, bluer, less saturated).</summary>
+    static float _bloomMoon;
+
+    static void MoonDisc(uint* px, int w, int h, float cx, float cy, float r, float alpha, float cr, float cg, float cb, bool soft)
+    {
+        if (_bloomMoon > 0)
+        {
+            const float mr = 150, mg = 165, mb = 205;
+            cr = (cr + (mr - cr) * 0.55f) * 0.82f;
+            cg = (cg + (mg - cg) * 0.55f) * 0.82f;
+            cb = (cb + (mb - cb) * 0.55f) * 0.9f;
+        }
+        Disc(px, w, h, cx, cy, r, alpha, cr, cg, cb, soft);
     }
 }

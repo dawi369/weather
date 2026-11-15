@@ -989,7 +989,7 @@ internal sealed partial class SnowSim
                 if (p.Kind == PKind.Rain)
                 {
                     Splash(p.X, hit!.PileTopAt(p.X), p.Depth);
-                    if (hit.IsGround && R() < 0.35f) AddRipple(p.X, hit.PileTopAt(p.X));
+                    if (R() < 0.35f) AddRipple(p.X, hit.PileTopAt(p.X), hit.IsGround ? IntPtr.Zero : hit.Hwnd);
                     remove = true;
                 }
                 else if (p.Kind == PKind.Seed)

@@ -33,7 +33,8 @@ internal static unsafe partial class Renderer
         for (int n = 0; n < sim.Count; n++)
         {
             ref var p = ref ps[n];
-            if (p.Life > 0 && p.Surf == IntPtr.Zero || p.Kind == PKind.Ripple) continue; // on the taskbar: drawn with it (DrawGround)
+            if (p.Life > 0 && p.Surf == IntPtr.Zero || p.Kind == PKind.Ripple && p.Surf == IntPtr.Zero) continue; // on the taskbar: drawn with it (DrawGround)
+            if (p.Kind == PKind.Ripple) { _clip = false; Ripple(px, w, h, p.X, p.Y, p.R, p.Alpha * p.Age / p.Fade); Mark(p.X - p.R - 2, p.Y - p.R, p.X + p.R + 2, p.Y + p.R); continue; }
             DrawParticle(px, w, h, ref p, 0);
         }
         _clip = false;
@@ -285,7 +286,7 @@ internal static unsafe partial class Renderer
         for (int n = 0; n < sim.Count; n++)
         {
             ref var p = ref ps[n];
-            if (p.Kind == PKind.Ripple) Ripple(px, w, h, p.X, p.Y - yOff, p.R, p.Alpha * p.Age / p.Fade);
+            if (p.Kind == PKind.Ripple) { if (p.Surf == IntPtr.Zero) Ripple(px, w, h, p.X, p.Y - yOff, p.R, p.Alpha * p.Age / p.Fade); }
             else if (p.Life > 0 && p.Surf == IntPtr.Zero) DrawParticle(px, w, h, ref p, yOff);
         }
         DrawSnowmen(px, w, h, sim, ground: true, yOff);

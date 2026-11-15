@@ -48,7 +48,7 @@ internal sealed partial class SnowSim
         switch (Material)
         {
             case Material.Petals:
-                MaxDepth = Math.Clamp(MaxDepth * 0.45f, 6f, 16f);
+                MaxDepth = Math.Clamp(MaxDepth * 0.65f, 8f, 20f);
                 Repose *= 0.6f;
                 EdgeLimit = MathF.Min(EdgeLimit, MaxDepth * 0.8f);
                 break;
@@ -244,7 +244,7 @@ internal sealed partial class SnowSim
 
     void SpawnSeeds(float dt)
     {
-        _spawnAcc += SpawnRate() * 0.03f * Amount * (Night ? 0.25f : 1f) * dt; // few seeds about at night
+        _spawnAcc += SpawnRate() * 0.03f * Amount * (Night ? 0f : 1f) * dt; // no seeds drift about at night: the fireflies have it
         while (_spawnAcc >= 1f)
         {
             _spawnAcc -= 1f;
@@ -260,7 +260,7 @@ internal sealed partial class SnowSim
         // Sunlit pollen motes drift and twinkle in the warm air by day.
         if (!Night)
         {
-            _moteAcc += SpawnRate() * 0.05f * Amount * dt;
+            _moteAcc += SpawnRate() * 0.03f * Amount * dt;
             while (_moteAcc >= 1f && Count < MaxParticles)
             {
                 _moteAcc -= 1f;
@@ -409,10 +409,12 @@ internal sealed partial class SnowSim
     bool _demoRainbow = Environment.GetEnvironmentVariable("WEATHER_RAINBOW") == "1"; // tests: show one straight away
 
     /// <summary>A ring spreading on the wet taskbar where a raindrop landed.</summary>
-    void AddRipple(float x, float y)
+    /// <param name="on">The window whose ledge it is on (Zero: the taskbar), which decides the layer it is drawn in.</param>
+    void AddRipple(float x, float y, IntPtr on)
     {
         if (Count >= MaxParticles) return;
         ref var p = ref NewParticle(PKind.Ripple);
+        p.Surf = on;
         p.X = x; p.Y = y;
         p.R = 1f;
         p.Age = p.Fade = R(0.5f, 0.8f);

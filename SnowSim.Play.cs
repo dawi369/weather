@@ -986,7 +986,7 @@ internal sealed partial class SnowSim
         {
             int have = 0;
             foreach (var c in Critters) if (c.Firefly && c.State != 2) have++;
-            int want = (int)(46 * MathF.Min(1.5f, Amount));
+            int want = (int)(60 * MathF.Min(1.5f, Amount));
             if (have < want && R() < dt * 6f)
                 AddFirefly(R(0f, ScreenW), Ground.AnchorY - R(40f, ScreenH * 0.8f), R(240f, 600f));
         }
