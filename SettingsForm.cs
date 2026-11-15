@@ -239,7 +239,9 @@ internal sealed class SettingsForm : Form
                  Slide("Brightness", "How bold the falling things look.", 10, 100, () => _s.FlakeBrightness, v => _s.FlakeBrightness = v, Pct)),
             new Caption("Play"),
             Card(Toggle("Play with Ctrl+Alt and the mouse", "Hold Ctrl+Alt to throw snowballs, build snowmen, kick leaves and more. Without them, clicks pass through as normal.",
-                        () => _s.PlayWithMouse, v => _s.PlayWithMouse = v)),
+                        () => _s.PlayWithMouse, v => _s.PlayWithMouse = v),
+                 Toggle("Little visitors", "A robin hops along the snowy ledges in winter and autumn; ladybirds wander your windows in spring and summer.",
+                        () => _s.Visitors, v => _s.Visitors = v)),
             new Caption("Taskbar"),
             Card(Toggle("Things settle on the taskbar", "Snow, petals and leaves pile up along the top of the taskbar.", () => _s.TaskbarSnow, v => _s.TaskbarSnow = v),
                  Slide("Height on the taskbar", "Nudge it if it doesn't sit right on your taskbar.", -120, 120, () => -_s.TaskbarSnowOffset, v => _s.TaskbarSnowOffset = -v,
@@ -286,7 +288,7 @@ internal sealed class SettingsForm : Form
                     showing ? Button("Send the snowplough", "Clear the taskbar now.", "Send", () => _host.Request(SeasonAction.Plow), primary: true) : null));
                 list.Add(new Caption("Play"));
                 list.Add(new Tip(("Ctrl+Alt+Drag", "Scoop snow off a ledge, roll it bigger, and throw it."),
-                                 ("Ctrl+Alt+Click", "Throw it straight at the screen: splat."),
+                                 ("Ctrl+Alt+Click", "On the desktop: splat. Over a window, it just drops behind it."),
                                  ("Ctrl+Alt+Right-click", "Build a snowman from the snow there (or knock one over).")));
                 break;
 

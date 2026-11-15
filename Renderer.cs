@@ -23,6 +23,7 @@ internal static unsafe partial class Renderer
             _occ[_occN++] = (s.Left, s.Top, s.Right, s.Bottom);
         }
 
+        DrawRainbow(px, w, h, sim);
         DrawSnowmen(px, w, h, sim, ground: false, 0);
         DrawDevil(px, w, h, sim);
 
@@ -30,14 +31,22 @@ internal static unsafe partial class Renderer
         for (int n = 0; n < sim.Count; n++)
         {
             ref var p = ref ps[n];
-            if (p.Life > 0 && p.Surf == IntPtr.Zero) continue; // resting on the taskbar: drawn with it (DrawGround)
+            if (p.Life > 0 && p.Surf == IntPtr.Zero || p.Kind == PKind.Ripple) continue; // on the taskbar: drawn with it (DrawGround)
             DrawParticle(px, w, h, ref p, 0);
         }
         _clip = false;
 
         DrawCritters(px, w, h, sim);
+        DrawVisitors(px, w, h, sim, ground: false, 0);
         DrawSplats(px, w, h, sim);
-        if (sim.Holding) Ball(px, w, h, sim.HeldX, sim.HeldY, sim.HeldRadius, 1f);
+        if (sim.Holding)
+        {
+            float hr = sim.HeldRadius + 2f;
+            int cover = Coverage(sim.HeldX - hr, sim.HeldY - hr, sim.HeldX + hr, sim.HeldY + hr);
+            _clip = cover == 1;
+            if (cover != 2) Ball(px, w, h, sim.HeldX, sim.HeldY, sim.HeldRadius, 1f);
+            _clip = false;
+        }
         EndFrame();
     }
 
@@ -45,18 +54,21 @@ internal static unsafe partial class Renderer
     static void DrawParticle(uint* px, int w, int h, ref Particle p, int yOff)
     {
         float py = p.Y - yOff;
-        // Landed things sit on the pile on top of a window, outside its body; snowballs, puffs and
-        // exhaust are in front of everything. All else is background and goes behind windows.
-        if (p.Life > 0 || yOff != 0 || p.Kind is PKind.Ball or PKind.Smoke or PKind.Splash) _clip = false;
+        // Landed things sit on the pile on top of a window, outside its body. Everything else (falling
+        // things, snowballs, puffs, exhaust) is in the background and goes behind windows. The box
+        // tested must cover everything the particle draws, or its edges would show over a window.
+        if (p.Life > 0 || yOff != 0) _clip = false;
         else
         {
+            float ss = Sprites.Scale;
             float ext = p.Kind switch
             {
-                PKind.Flake => p.Shape is > 0 and < 255 ? 9f : p.R + 3f,
-                PKind.Leaf => 13f * p.R,
-                PKind.Petal => 8f * p.R,
-                PKind.Seed => 12f * p.R,
-                PKind.Rain => 30f,
+                PKind.Flake => p.Shape is > 0 and < 255 ? p.R * 1.5f + 5f : p.R + 3f + MathF.Abs(p.VY) * 0.015f,
+                PKind.Leaf => 9.5f * ss * p.R + 2f,
+                PKind.Petal => 6.5f * ss * p.R + 2f,
+                PKind.Seed => (10f * ss + 3f) * p.R + 6f * _scale,
+                PKind.Rain => MathF.Abs(p.VY) * 0.03f + 4f,
+                PKind.Smoke => p.R * 1.7f + 2f,
                 _ => p.R + 3f,
             };
             int cover = Coverage(p.X - ext, py - ext, p.X + ext, py + ext);
@@ -262,16 +274,19 @@ internal static unsafe partial class Renderer
         _clip = false;
         int yOff = (int)sim.Ground.AnchorY - h;
         if (sim.MeadowOn && sim.Season is Season.Spring or Season.Summer) DrawMeadow(px, w, h, sim, yOff);
+        if (sim.Clocks.Count > 0) DrawClocks(px, w, h, sim, yOff);
         DrawPile(px, w, h, sim.Ground, yOff);
         var ps = sim.Particles;
         for (int n = 0; n < sim.Count; n++)
         {
             ref var p = ref ps[n];
-            if (p.Life > 0 && p.Surf == IntPtr.Zero) DrawParticle(px, w, h, ref p, yOff);
+            if (p.Kind == PKind.Ripple) Ripple(px, w, h, p.X, p.Y - yOff, p.R, p.Alpha * p.Age / p.Fade);
+            else if (p.Life > 0 && p.Surf == IntPtr.Zero) DrawParticle(px, w, h, ref p, yOff);
         }
         DrawSnowmen(px, w, h, sim, ground: true, yOff);
         foreach (var c in sim.Critters)
             if (c.State == 1 && c.OnGround) DrawButterfly(px, w, h, c, yOff);
+        DrawVisitors(px, w, h, sim, ground: true, yOff);
         if (sim.Vehicle != null) DrawVehicle(px, w, h, sim, sim.Vehicle, yOff);
         _clip = false;
     }
@@ -318,6 +333,8 @@ internal static unsafe partial class Renderer
                 if (hh > floorH)
                 {
                     float rad = joined ? MathF.Min(hh - floorH, 10f) : MathF.Min(hh, 4f);
+                    // Where an overhang hangs off this end, the pile runs straight into it at full height.
+                    if (!joined) rad *= MathF.Max(0f, 1f - SnowSim.CorniceReach(leftNear ? s.OverL : s.OverR, s.H[leftNear ? 0 : s.Cells - 1]) / 3f);
                     if (de < rad) { float q = de / rad; hh = floorH + (hh - floorH) * MathF.Sqrt(q * (2f - q)); }
                 }
             }
@@ -407,40 +424,46 @@ internal static unsafe partial class Renderer
     }
 
     /// <summary>
-    /// Real snow doesn't stop dead at an edge: it curls over it a little and droops (a small
-    /// cornice). Drawn just outside the window's free ends, sized by how deep the snow is there.
+    /// The overhang (cornice) hanging off a window's free end, drawn just outside it.
     /// </summary>
     static void DrawCornice(uint* px, int w, int h, Surface s, bool left)
     {
+        // The overhang the simulation has built past this edge (see SnowSim.Drip): it continues the
+        // pile's top at full height, curls out past the edge and droops below it, its size and
+        // droop growing with the snow in it.
         int e = left ? 0 : s.Cells - 1;
         if (s.Vis[e] == 0) return;
-        float hEnd = HeightAt(s, left ? 3f : s.Right - s.Left - 3f);
-        if (hEnd < 3f) return;
-        float over = MathF.Min(7f, hEnd * 0.42f);   // how far it reaches past the edge
-        float droop = MathF.Min(4f, hEnd * 0.22f);  // how far its underside sags below the edge
+        float over = left ? s.OverL : s.OverR;
+        float hEdge = s.H[e];
+        float reach = SnowSim.CorniceReach(over, hEdge);
+        if (reach < 0.8f) return;
+        float droop = MathF.Min(hEdge * 0.7f, reach * 1.1f); // curls down over the edge rather than out
         float edge = left ? s.Left : s.Right;
-        int xa = (int)MathF.Floor(left ? edge - over : edge), xb = (int)MathF.Ceiling(left ? edge : edge + over);
+        // Start exactly where the drawn pile ends, so there is no step or notch at the corner.
+        float cxe = left ? 0.5f : s.Right - s.Left - 0.5f;
+        float drawn = (HeightAt(s, cxe - 6f) + 2f * HeightAt(s, cxe - 3f) + 3f * HeightAt(s, cxe) + 2f * HeightAt(s, cxe + 3f) + HeightAt(s, cxe + 6f)) / 9f;
+        if (drawn > 0.5f) drawn += (Noise1(s.Seed, cxe / 9f) * 0.9f + Noise1(s.Seed + 5, cxe / 4.5f) * (_mat == Material.Leaves ? 0.9f : 0.22f)) * MathF.Min(1f, drawn / 6f);
+        float yTop0 = s.AnchorY - MathF.Max(drawn, 0.5f), yTip = s.AnchorY + droop * 0.6f;
+        Mark(edge - reach - 2, yTop0 - 2, edge + reach + 2, s.AnchorY + droop + 2);
+        int xa = (int)MathF.Floor(left ? edge - reach : edge), xb = (int)MathF.Ceiling(left ? edge : edge + reach);
         for (int x = Math.Max(xa, 0); x < Math.Min(xb, w); x++)
         {
-            float q = Math.Clamp(MathF.Abs(x + 0.5f - edge) / over, 0f, 1f);
-            float round = MathF.Sqrt(1f - q * q);
-            // Its top rounds down from the pile's height; its underside sags a little below the edge.
-            float top = s.AnchorY - hEnd * 0.9f * round, bottom = s.AnchorY + droop * round - hEnd * 0.2f * q;
-            if (bottom - top < 0.5f) continue;
-            // A faint shadow just under the overhang.
-            int sy = (int)MathF.Ceiling(bottom);
-            if (sy >= 0 && sy + 1 < h)
-            {
-                Blend(px + sy * w + x, 10f, 14f, 24f, 0.14f * round);
-                Blend(px + (sy + 1) * w + x, 10f, 14f, 24f, 0.06f * round);
-            }
-            int y0 = Math.Max((int)MathF.Floor(top - 1f), 0), y1 = Math.Min((int)MathF.Ceiling(bottom), h);
+            float q = Math.Clamp(MathF.Abs(x + 0.5f - edge) / reach, 0f, 1f);
+            // Top: level with the pile at the edge, rounding down to the tip. Underside: from the
+            // window's edge, sagging out to the tip.
+            float top = yTop0 + (yTip - yTop0) * MathF.Pow(q, 2.2f);
+            float under = s.AnchorY + (yTip - s.AnchorY) * MathF.Pow(q, 0.6f) + droop * 0.4f * MathF.Sin(q * MathF.PI);
+            if (under - top < 0.4f) continue;
+            int y0 = Math.Max((int)MathF.Floor(top - 1f), 0), y1 = Math.Min((int)MathF.Ceiling(under + 1f), h);
+            int xr = x - s.Left;
             for (int y = y0; y < y1; y++)
             {
                 float yc = y + 0.5f;
-                float cov = Math.Clamp((yc - (top - 0.8f)) / 1.6f, 0f, 1f) * Math.Clamp(bottom - y, 0f, 1f);
+                float cov = Math.Clamp((yc - (top - 0.8f)) / 1.6f, 0f, 1f) * Math.Clamp((under + 0.6f - yc) / 1.2f, 0f, 1f);
                 if (cov <= 0.01f) continue;
-                PileColor(px + y * w + x, MathF.Max(0f, yc - top), 1f, cov, x - s.Left, s.Seed);
+                // The underside is in shadow.
+                float shade = 1f - 0.12f * Math.Clamp((yc - s.AnchorY) / MathF.Max(droop, 1f), 0f, 1f);
+                PileColor(px + y * w + x, MathF.Max(0f, yc - top), shade, cov, xr, s.Seed);
             }
         }
     }

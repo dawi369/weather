@@ -4,7 +4,7 @@ namespace Weather;
 /// What a particle is. Flake/Clump/Powder are snow; Petal, Leaf and Seed are the other seasons' fall;
 /// Rain and Splash are spring showers; Ball is a thrown snowball; Smoke is the plough's exhaust.
 /// </summary>
-internal enum PKind : byte { Flake, Clump, Powder, Petal, Leaf, Seed, Rain, Splash, Ball, Smoke }
+internal enum PKind : byte { Flake, Clump, Powder, Petal, Leaf, Seed, Rain, Splash, Ball, Smoke, Ripple }
 
 internal struct Particle
 {
@@ -41,7 +41,9 @@ internal sealed class Surface
     public float AX, AY;               // smoothed window acceleration, px/s²
     public float SlideVel, SlideOffset; // snow sliding relative to the window
     public float DripL, DripR;          // timers for edge drips
-    public float SpillL, SpillR;        // snow (px²) that has flowed over each edge, waiting to drop
+    public float SpillL, SpillR;        // snow (px²) that has flowed over each edge this frame
+    public float OverL, OverR;          // snow (px²) in the overhang (cornice) built out past each free edge
+    public float BreakL, BreakR;        // share of what the edge can hold at which each overhang breaks off next
 
     // A window sitting right next to this one: the two piles join into one blanket across the gap.
     public Surface? LinkL, LinkR;
@@ -195,6 +197,9 @@ internal sealed partial class SnowSim
         Settle(Ground, dt);
         WipeTimer(dt);
     }
+
+    /// <summary>Total snow (px²) on the taskbar (stats).</summary>
+    public float GroundVolume() { float v = 0; for (int i = 0; i < Ground.Cells; i++) v += Ground.H[i]; return v * Cell; }
 
     /// <summary>Debug: one line per surface with its joins and tallest column (for WEATHER_DUMP).</summary>
     public string DebugDump()
@@ -833,7 +838,7 @@ internal sealed partial class SnowSim
         p.Kind = kind;
         p.X = x; p.Y = y; p.VX = vx; p.VY = vy; p.Vol = vol;
         float r = MathF.Sqrt(vol / MathF.PI);
-        p.R = kind == PKind.Powder ? Math.Clamp(r * 1.2f, 0.7f, 1.6f) : Math.Clamp(r * 1.15f, 0.9f, 5f);
+        p.R = kind == PKind.Powder ? Math.Clamp(r * 1.2f, 0.7f, 1.6f) : Math.Clamp(r * 1.15f, 0.9f, 6f);
         p.Alpha = kind == PKind.Powder ? 0.75f : 0.97f;
         p.Phase = R(0f, 6.283f);
         p.Freq = R(2f, 5f);
@@ -944,6 +949,12 @@ internal sealed partial class SnowSim
                     p.Rot += p.VX * 0.02f * dt;
                     if (BallHitsSnowman(ref p)) { Particles[n] = Particles[--Count]; continue; }
                     break;
+                case PKind.Ripple:
+                    p.Age -= dt;
+                    if (p.Age <= 0) { Particles[n] = Particles[--Count]; continue; }
+                    p.R += 16f * UiScale * 0.7f * dt;
+                    n++;
+                    continue;
                 case PKind.Smoke:
                     p.Age -= dt;
                     if (p.Age <= 0) { Particles[n] = Particles[--Count]; continue; }
@@ -968,6 +979,7 @@ internal sealed partial class SnowSim
                 if (p.Kind == PKind.Rain)
                 {
                     Splash(p.X, hit!.PileTopAt(p.X), p.Depth);
+                    if (hit.IsGround && R() < 0.35f) AddRipple(p.X, hit.PileTopAt(p.X));
                     remove = true;
                 }
                 else if (p.Kind == PKind.Seed)
@@ -1092,6 +1104,16 @@ internal sealed partial class SnowSim
                 AddClump(x + R(-1.5f, 1.5f), y - k * 2.5f, vol / n,
                          vx * R(0.8f, 1.1f) + R(-spread, spread),
                          vy * R(0.8f, 1.1f) + R(-spread, spread * 0.5f), PKind.Clump);
+        }
+        // The overhangs go with it.
+        float take = MathF.Min(frac, 1f);
+        foreach (bool left in new[] { true, false })
+        {
+            ref float over = ref (left ? ref s.OverL : ref s.OverR);
+            float vol = over * take;
+            over -= vol;
+            if (vol < 0.4f) continue;
+            AddClump(left ? s.Left - 2f : s.Right + 2f, s.AnchorY - 2f, vol, vx + R(-spread, spread), vy, PKind.Clump);
         }
     }
 
@@ -1507,30 +1529,80 @@ internal sealed partial class SnowSim
         else { Array.Copy(h, 1, h, 0, n - 1); h[n - 1] = 0; }
     }
 
-    /// <summary>Snow that flowed over an edge drops off it in chunks of varying size.</summary>
+    /// <summary>
+    /// Snow that flows over a free edge doesn't just trickle off: it builds out into an overhang (a
+    /// cornice) that curls past the edge and droops as it gets heavier. When it's more than the
+    /// snow can hold (stickier snow holds a bigger one), or the window is jolted, it breaks off in
+    /// one slab and falls, and the cornice starts again.
+    /// </summary>
     void Drip(Surface s, float dt, bool left)
     {
         int e = left ? 0 : s.Cells - 1;
         ref float timer = ref (left ? ref s.DripL : ref s.DripR);
         ref float spill = ref (left ? ref s.SpillL : ref s.SpillR);
-        if ((left ? s.LinkL : s.LinkR) != null && spill > 0) { float v = spill; spill = 0; OverEdge(s, left, v); return; }
-        if (s.Vis[e] == 0) { spill = 0; return; } // edge hidden behind a window: nothing to show
-        if (spill < 0.6f) return;
-        timer -= dt;
-        if (timer > 0) return;
-        timer = R(0.04f, 0.22f) * DripPace;
-
-        // Drop it as fast as it arrives (bigger and more chunks when a lot is coming over), so all
-        // of it ends up on whatever is below.
-        float y = s.Clamped ? s.AnchorY + 2f : s.AnchorY - MathF.Min(s.H[e], EdgeLimit) * 0.6f;
-        int chunks = 0;
-        while (spill >= 0.6f && chunks++ < 6)
+        ref float over = ref (left ? ref s.OverL : ref s.OverR);
+        ref float brk = ref (left ? ref s.BreakL : ref s.BreakR);
+        if ((left ? s.LinkL : s.LinkR) != null)
         {
-            float vol = MathF.Min(spill, MathF.Max(R(2f, 12f), spill * R(0.15f, 0.35f)));
-            spill -= vol;
-            float x = left ? s.Left - R(1f, 3f) : s.Right + R(1f, 3f);
-            AddClump(x, y - R(0f, 3f), vol, (left ? -1f : 1f) * R(8f, 45f) + s.VX * 0.3f, R(0f, 30f),
-                     vol < 2.5f ? PKind.Powder : PKind.Clump);
+            // Joined to a neighbour: no edge to hang over; it carries on across the join.
+            float v = spill + over;
+            spill = over = 0;
+            if (v > 0) OverEdge(s, left, v);
+            return;
         }
+        if (s.Vis[e] == 0) { spill = 0; over = 0; return; } // edge hidden behind a window: nothing to show
+        if (s.Clamped)
+        {
+            // Hanging down from the top of the screen: it just drops off in bits.
+            if (spill < 0.6f) return;
+            timer -= dt;
+            if (timer > 0) return;
+            timer = R(0.04f, 0.22f) * DripPace;
+            while (spill >= 0.6f)
+            {
+                float vol = MathF.Min(spill, MathF.Max(R(2f, 12f), spill * R(0.15f, 0.35f)));
+                spill -= vol;
+                AddClump(left ? s.Left - R(1f, 3f) : s.Right + R(1f, 3f), s.AnchorY + 2f, vol, (left ? -1f : 1f) * R(8f, 45f), R(0f, 30f),
+                         vol < 2.5f ? PKind.Powder : PKind.Clump);
+            }
+            return;
+        }
+
+        over += spill;
+        spill = 0;
+        if (over <= 0) return;
+        float hEdge = s.H[e];
+        // How much overhang the edge can hold: more on a deeper edge and with stickier snow.
+        float hold = MathF.Max(hEdge, 1.5f);
+        float cap = (0.18f + 0.27f * DripPace) * hold * hold;
+        if (brk <= 0) brk = R(0.5f, 1f);
+        bool jolt = MathF.Abs(s.AX) > ShakeAccel * 0.5f || s.AY > FlingAccel * 0.5f;
+        if (over < cap * brk && !jolt && hEdge >= 1f) return;
+
+        // It breaks: the cornice comes away as one slab, crumbling a little as it goes.
+        float side = left ? -1f : 1f;
+        float reach = CorniceReach(over, hEdge);
+        float slab = over * (jolt ? 1f : R(0.75f, 1f));
+        over -= slab;
+        brk = R(0.5f, 1f);
+        float vx = side * R(6f, 30f) + s.VX * 0.4f, vy = R(0f, 25f) + MathF.Max(s.VY, 0f) * 0.3f;
+        float edgeX = left ? s.Left : s.Right;
+        // One main lump with a few smaller bits stuck to it: they fall together and drift apart a
+        // little, the way a slab crumbles, rather than as one round ball or a string of beads.
+        float cx0 = edgeX + side * reach * 0.5f, cy0 = s.AnchorY - hEdge * 0.3f;
+        AddClump(cx0, cy0, slab * 0.55f, vx, vy, PKind.Clump);
+        int bits = 3 + _rng.Next(3);
+        for (int k = 0; k < bits; k++)
+            AddClump(cx0 + R(-1f, 1f) * MathF.Max(3f, reach), cy0 + R(-0.6f, 0.8f) * MathF.Max(2f, hEdge * 0.5f), slab * 0.45f / bits,
+                     vx + R(-6f, 6f), vy + R(-4f, 8f), PKind.Clump);
+        for (int k = 0; k < 5; k++)
+            AddClump(edgeX + side * reach * R(0f, 1f), s.AnchorY - hEdge * R(0f, 0.8f), 0f, vx + R(-25f, 25f), vy - R(10f, 50f), PKind.Powder);
+    }
+
+    /// <summary>How far an overhang of this much snow reaches past the edge (px).</summary>
+    public static float CorniceReach(float over, float hEdge)
+    {
+        if (over <= 0 || hEdge < 1f) return 0;
+        return MathF.Min(over / hEdge, hEdge * 0.6f + 2f); // a short lip, not a shelf
     }
 }

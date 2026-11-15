@@ -33,6 +33,7 @@ internal sealed class Vehicle
     public bool Blower;
     public int Dir;
     public float X, Speed, Frame, Puff, W, H, Scale;
+    public int BermCells; // length of the mound of snow being pushed along (snowplough)
 }
 
 internal sealed class Splat
@@ -115,6 +116,9 @@ internal sealed partial class SnowSim
         UpdateDevil(dt);
         UpdateSplats(dt);
         AutoEvents(dt);
+        UpdateVisitors(dt);
+        UpdateClocks(dt);
+        AutoVisitors(dt);
     }
 
     // ───────────────────────────── input ─────────────────────────────
@@ -193,7 +197,11 @@ internal sealed partial class SnowSim
                 if (Season == Season.Summer && Night)
                     for (int k = 0; k < 14; k++) AddFirefly(R(0.1f, 0.9f) * ScreenW, Ground.AnchorY - R(10f, 200f), 90f);
                 else if (Season is Season.Spring or Season.Summer)
+                {
                     for (int k = 0; k < 3; k++) AddButterfly(0, 0, fromEdge: true);
+                    AddVisitor(VisitorKind.Ladybird);
+                }
+                else AddVisitor(VisitorKind.Robin);
                 break;
             case SeasonAction.Gust:
                 if (Season == Season.Autumn) StartDevil(R(0.2f, 0.8f) * ScreenW);
@@ -293,7 +301,7 @@ internal sealed partial class SnowSim
         float sp = MathF.Sqrt(vx * vx + vy * vy);
         if (sp < 160f)
         {
-            // Thrown straight at the screen: it splats on the glass of whatever window is there.
+            // Not thrown, just let go: on the desktop it splats, over a window it drops behind it.
             SplatAt(x, y, HeldVol);
             return;
         }
@@ -307,14 +315,30 @@ internal sealed partial class SnowSim
         p.NoLand = 0.1f;
     }
 
+    void DropBall(float x, float y, float vx, float vy, float vol)
+    {
+        if (Count >= MaxParticles) return;
+        ref var p = ref NewParticle(PKind.Ball);
+        p.X = x; p.Y = y; p.VX = vx; p.VY = vy;
+        p.Vol = vol;
+        p.R = Math.Clamp(MathF.Sqrt(vol / MathF.PI), 3.5f, 17f) * BallScale;
+        p.Alpha = 1f;
+        p.NoLand = 0.1f;
+    }
+
     void SplatAt(float x, float y, float vol)
     {
         var sp = new Splat { R = Math.Clamp(MathF.Sqrt(vol / MathF.PI) * 1.8f, 10f, 34f) * BallScale, Seed = _rng.Next() };
         Surface? on = null;
         foreach (var s in Z)
             if (x >= s.Left && x < s.Right && y >= s.Top && y < s.Bottom) { on = s; break; }
-        if (on != null) { sp.Hwnd = on.Hwnd; sp.RelX = x - on.Left; sp.RelY = y - on.Top; }
-        else { sp.RelX = x; sp.RelY = y; }
+        if (on != null)
+        {
+            // Over a window: the snowball is behind it, so it just drops (and lands on whatever is below).
+            DropBall(x, y, 0f, 40f, vol);
+            return;
+        }
+        sp.RelX = x; sp.RelY = y; // on the desktop, behind the windows
         Splats.Add(sp);
         if (Splats.Count > 12) Splats.RemoveAt(0);
         Puff(x, y, 14, 220f);
@@ -506,26 +530,63 @@ internal sealed partial class SnowSim
 
         if (!v.Blower)
         {
-            // Everything under the plough is scraped up and carried along in front of the blade.
-            int a = g.Col(MathF.Min(front, back)), b = g.Col(MathF.Max(front, back));
+            // The blade scrapes the taskbar down to a dusting and rolls everything into a mound in
+            // front of it. Nothing vanishes: the mound keeps all the snow it has gathered, growing
+            // longer (not taller than the blade) as it goes, and only what is shoved off the edge of
+            // the screen is lost (and you see it tumble off).
+            int dir = v.Dir;
+            float bladeH = MathF.Min(22f * sc, MaxDepth * 1.15f);
+            int iFront = (int)MathF.Floor((front - g.Left) / Cell);
+            int iBack = (int)MathF.Floor((back - g.Left) / Cell);
             float load = 0;
-            if (MathF.Max(front, back) > 0 && MathF.Min(front, back) < ScreenW)
-                for (int i = a; i <= b; i++) { load += g.H[i]; g.H[i] = 0; }
-            int start = g.Col(front) + v.Dir;
-            float frontEdge = front + v.Dir * Cell;
-            if (frontEdge >= 0 && frontEdge < ScreenW)
+            for (int i = Math.Min(iFront, iBack); i <= Math.Max(iFront, iBack); i++)
             {
-                // Heap it into a berm just ahead of the blade (pushed off the screen at the end).
-                for (int k = 0; k < 6; k++)
+                if ((uint)i >= (uint)g.Cells) continue;
+                float take = MathF.Max(0f, g.H[i] - 0.3f);
+                g.H[i] -= take;
+                load += take;
+            }
+            // Gather last frame's mound (and whatever lies under where the new one will be), then lay
+            // the mound again just ahead of the blade.
+            int gathered = 0, L = 3;
+            float hm = 0;
+            for (int pass = 0; pass < 5; pass++)
+            {
+                int reach = Math.Max(v.BermCells, L) + 3;
+                for (int k = gathered + 1; k <= reach; k++)
                 {
-                    int i = start + v.Dir * k;
-                    if ((uint)i >= (uint)g.Cells) break;
-                    g.H[i] = MathF.Min(MaxPile, g.H[i] + load * (6 - k) / 21f);
+                    int i = iFront + dir * k;
+                    if ((uint)i >= (uint)g.Cells) continue;
+                    load += g.H[i];
+                    g.H[i] = 0;
                 }
-                // A bit of spray off the top of the berm.
-                if (load > 1f && R() < 0.6f)
-                    AddClump(front + v.Dir * 6f, g.AnchorY - MathF.Min(g.H[Math.Clamp(start, 0, g.Cells - 1)], 30f) - 2f, 0f,
-                             v.Dir * R(60f, 200f), -R(60f, 200f), PKind.Powder);
+                gathered = Math.Max(gathered, reach);
+                L = Math.Max(3, (int)MathF.Ceiling(load / (0.785f * bladeH)));
+                if (L + 3 <= gathered) break;
+            }
+            hm = load / (0.785f * L);
+            float lost = 0;
+            for (int k = 1; k <= L; k++)
+            {
+                float q = (k - 0.5f) / L;
+                float hk = hm * MathF.Sqrt(MathF.Max(0f, 1f - q * q)); // tall against the blade, tapering ahead
+                int i = iFront + dir * k;
+                if ((uint)i < (uint)g.Cells) g.H[i] += hk;
+                else lost += hk;
+            }
+            v.BermCells = L;
+            if (lost > 0.2f && R() < 0.8f)
+            {
+                // Shoved off the end of the screen: it tumbles away.
+                float ex = dir > 0 ? ScreenW - 2f : 2f;
+                AddClump(ex, g.AnchorY - R(1f, MathF.Max(2f, hm)), 0f, dir * R(30f, 120f), -R(0f, 90f), PKind.Clump);
+            }
+            // Loose snow crumbling off the top of the mound.
+            if (hm > 2f && R() < 0.5f)
+            {
+                float mx = front + dir * R(0.05f, 0.5f) * L * Cell;
+                if (mx > 0 && mx < ScreenW)
+                    AddClump(mx, g.AnchorY - hm * 0.9f - 1f, 0f, dir * R(20f, 90f), -R(30f, 110f), PKind.Powder);
             }
         }
         else
@@ -566,6 +627,8 @@ internal sealed partial class SnowSim
             if (sm.OnGround && !sm.Falling && MathF.Abs(sm.X - front) < 10f * sc) Topple(sm, v.Dir * R(250f, 400f), -R(200f, 320f));
         foreach (var c in Critters)
             if (c.State == 1 && c.OnGround && MathF.Abs(c.X - v.X) < v.W) TakeOff(c);
+        foreach (var vis in Visitors)
+            if (vis.State == 1 && vis.OnGround && MathF.Abs(vis.X - v.X) < v.W) FlyOff(vis);
 
         // Exhaust puffs from the pipe.
         v.Puff -= dt;
@@ -887,7 +950,7 @@ internal sealed partial class SnowSim
             }
         }
 
-        bool daytime = DateTime.Now.Hour is >= 7 and < 20;
+        bool daytime = IsDay;
         _critterTimer -= dt;
         if (_critterTimer <= 0)
         {

@@ -80,7 +80,8 @@ internal sealed unsafe class Engine
         double n = _frames;
         File.AppendAllText(_stats!, $"fps={n / (start - _statStart):F1} work={_sumWork / n * 1000:F2}ms (max {_maxWork * 1000:F1}) " +
                                     $"done-before-refresh={_sumLead / n * 1000:F1}ms late={_late} sim={_ph[0] / n * 1000:F2} " +
-                                    $"draw={_ph[1] / n * 1000:F2} ground={_ph[2] / n * 1000:F2} present={_ph[3] / n * 1000:F2} particles={_sim.Count}\n");
+                                    $"draw={_ph[1] / n * 1000:F2} ground={_ph[2] / n * 1000:F2} present={_ph[3] / n * 1000:F2} particles={_sim.Count} " +
+                                    $"taskbarSnow={_sim.GroundVolume():F0} plough={(_sim.Vehicle == null ? "-" : _sim.Vehicle.X.ToString("F0"))}\n");
         Array.Clear(_ph);
         _frames = _late = 0; _sumWork = _maxWork = _sumLead = 0;
     }

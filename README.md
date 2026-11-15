@@ -9,13 +9,17 @@ Clicks always go straight through. It lives in the tray and follows the calendar
 ## The seasons
 
 **Winter.** Snow that builds into uneven mounds, drifts in the wind, slides off when you drag a window and
-flies off when you flick one. A little snowplough comes along to clear the taskbar when it gets deep.
+flies off when you flick one. At a window's free corner it builds a little overhang that droops and
+breaks off in a chunk. A robin drops by to hop along the ledges, and a little snowplough pushes the
+snow off the taskbar when it gets deep.
 
 **Spring.** Cherry-blossom petals flutter down into a thin pink carpet. Every so often a shower passes over,
-with splashes on the ledges. Grass and spring flowers grow along the taskbar, and butterflies wander across and
+with splashes on the ledges and ripples on the taskbar, and a rainbow when it clears. Grass and spring
+flowers grow along the taskbar, ladybirds wander along your windows, and butterflies wander across and
 rest on your windows (get close and they're off).
 
-**Summer.** Dandelion seeds drift on the breeze, the meadow is tall with poppies and cornflowers, and after
+**Summer.** Dandelion seeds and pollen drift on the breeze, the meadow is tall with poppies, cornflowers and
+dandelion clocks that burst into seeds as the mouse brushes past, and after
 8 pm fireflies come out. Hold the mouse still and they gather round it.
 
 **Autumn.** Leaves tumble down like real ones, rocking side to side, and heap up on every ledge. Now and then a
@@ -27,7 +31,7 @@ Hold **Ctrl + Alt** and use the mouse (normal clicks are never touched):
 
 | | Drag | Right-click |
 |---|---|---|
-| Winter | scoop snow off a ledge, roll it bigger, throw it. A plain click throws it at the screen: splat | build a snowman from the snow there, or knock one over |
+| Winter | scoop snow off a ledge, roll it bigger, throw it. A plain click over the desktop: splat | build a snowman from the snow there, or knock one over |
 | Spring | sweep through the petals | start or stop a shower |
 | Summer | blow a dandelion clock | release a butterfly (fireflies at night) |
 | Autumn | kick up the leaves | start a dust devil |

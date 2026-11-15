@@ -141,7 +141,10 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
         void Act(string text, SeasonAction a) => _menu.Items.Add(new ToolStripMenuItem(text, null, (_, _) => Request(a)) { Padding = pad });
         switch (season)
         {
-            case Season.Winter: Act("Send the snowplough", SeasonAction.Plow); break;
+            case Season.Winter:
+                Act("Send the snowplough", SeasonAction.Plow);
+                Act("Invite a robin", SeasonAction.Critters);
+                break;
             case Season.Spring:
                 Act(sim.RainLevel > 0.05f ? "Stop the shower" : "Bring a spring shower", SeasonAction.Shower);
                 Act("Release butterflies", SeasonAction.Critters);
@@ -150,6 +153,7 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
             default:
                 Act("Send the leaf blower", SeasonAction.Plow);
                 Act("Whip up a dust devil", SeasonAction.Gust);
+                Act("Invite a robin", SeasonAction.Critters);
                 break;
         }
 

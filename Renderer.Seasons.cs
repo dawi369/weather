@@ -293,12 +293,9 @@ internal static unsafe partial class Renderer
     /// <summary>A packed snowball, lit from the upper left.</summary>
     static void Ball(uint* px, int w, int h, float x, float y, float r, float alpha)
     {
-        bool clip = _clip;
-        _clip = false;
         Disc(px, w, h, x, y, r + 1.3f, alpha * 0.2f, 90, 105, 135, soft: true);
         Disc(px, w, h, x, y, r, alpha, 238, 243, 252, soft: false);
         Disc(px, w, h, x - r * 0.3f, y - r * 0.32f, r * 0.42f, alpha * 0.55f, 255, 255, 255, soft: true);
-        _clip = clip;
     }
 
     // ───────────────────────────── winter extras ─────────────────────────────
@@ -314,13 +311,22 @@ internal static unsafe partial class Renderer
             float sy = (0.25f + 0.75f * sm.Grow) * (sm.Melting ? 0.4f + 0.6f * sm.Melt : 1f);
             float sx = 0.85f + 0.15f * sm.Grow;
             float angle = sm.Falling ? sm.Rot : MathF.Sin(_time * 14f) * sm.Wobble;
+            _clip = false;
+            if (sm.Falling && !ground)
+            {
+                // Knocked off its ledge, it falls behind the windows like everything else.
+                float e = sm.Height;
+                int cover = Coverage(sm.X - e, sm.Y - e * 1.5f, sm.X + e, sm.Y + e);
+                if (cover == 2) continue;
+                _clip = cover == 1;
+            }
             Blit(px, w, h, sm.Img, sm.X, sm.Y - yOff, sx, sy, alpha, angle, pivotY: 0.98f);
         }
     }
 
     static void DrawSplats(uint* px, int w, int h, SnowSim sim)
     {
-        _clip = false;
+        _clip = true; // splats are on the desktop, behind the windows
         foreach (var sp in sim.Splats)
         {
             if (!sim.SplatPos(sp, out float x, out float y)) continue;
@@ -376,7 +382,8 @@ internal static unsafe partial class Renderer
             {
                 if (c.Glow < 0.02f) continue;
                 float r = 7f * _scale;
-                int cover = Coverage(c.X - r, c.Y - r, c.X + r, c.Y + r);
+                float e = r * 2.3f; // the outer glow reaches 2.2r
+                int cover = Coverage(c.X - e, c.Y - e, c.X + e, c.Y + e);
                 if (cover == 2) continue;
                 _clip = cover == 1;
                 Glow(px, w, h, c.X, c.Y, r * 2.2f, 0.42f * c.Glow, 190, 255, 110);
@@ -403,7 +410,7 @@ internal static unsafe partial class Renderer
         {
             frame = (int)MathF.Round(MathF.Abs(MathF.Sin(c.Phase)) * (Sprites.ButterflyFrames - 1));
             angle = Math.Clamp(c.VX / 500f, -0.35f, 0.35f);
-            float r = 12f * _scale;
+            float r = 15f * _scale; // half the drawn sprite, with room for its tilt
             int cover = yOff != 0 ? 0 : Coverage(c.X - r, c.Y - r, c.X + r, c.Y + r);
             if (cover == 2) return;
             _clip = cover == 1;
@@ -558,6 +565,141 @@ internal static unsafe partial class Renderer
                 if (q <= 0) continue;
                 if (_clip && Covered(x, y)) continue;
                 Blend(row + x, cr, cg, cb, alpha * q * q);
+            }
+        }
+    }
+}
+
+internal static unsafe partial class Renderer
+{
+    /// <summary>Robins and ladybirds: perched on the taskbar they're drawn with it, otherwise on the overlay.</summary>
+    static void DrawVisitors(uint* px, int w, int h, SnowSim sim, bool ground, int yOff)
+    {
+        foreach (var v in sim.Visitors)
+        {
+            bool onGround = v.State == 1 && v.OnGround;
+            if (onGround != ground) continue;
+            bool robin = v.Kind == VisitorKind.Robin;
+            int frame;
+            if (v.State == 1)
+                frame = robin ? (v.Action == 2 ? 1 : v.Action == 1 && v.Lift > 1f ? 2 : 0)
+                              : (v.Action == 2 ? 2 : v.Action == 1 ? ((int)(v.Phase * 10f)) & 1 : 0);
+            else
+                frame = robin ? (MathF.Sin(v.Age * 22f) > 0 ? 2 : 3) : 2;
+            var img = robin ? Sprites.Robin(frame) : Sprites.Ladybird(frame);
+            _clip = false;
+            if (v.State != 1 && !ground)
+            {
+                int cover = Coverage(v.X - img.W * 2, v.Y - img.H * 2, v.X + img.W * 2, v.Y);
+                if (cover == 2) continue;
+                _clip = cover == 1;
+            }
+            float k = robin ? 1.6f : 2f; // a touch bigger than life, so they read at a glance
+            Blit(px, w, h, img, v.X, v.Y - yOff, v.Dir * k, k, 1f, 0f, pivotY: robin ? 0.98f : 0.99f);
+        }
+        _clip = false;
+    }
+}
+
+internal static unsafe partial class Renderer
+{
+    /// <summary>Dandelion clocks in the summer meadow: a stem and a soft white globe of seeds (or a bare head regrowing).</summary>
+    static void DrawClocks(uint* px, int w, int h, SnowSim sim, int yOff)
+    {
+        float baseY = sim.Ground.AnchorY - yOff;
+        float s = MathF.Max(1f, _scale * 0.7f);
+        float night = sim.Night ? 0.5f : 1f;
+        foreach (var c in sim.Clocks)
+        {
+            float sway = (sim.Wind * 0.045f + MathF.Sin(_time * 1.6f + c.X * 0.021f) * 1.2f) * (c.Height / (12f * s)) * 0.6f;
+            float cdx = c.X - sim.CursorX, cy = sim.CursorY - yOff;
+            if (MathF.Abs(cdx) < 55f && cy > baseY - c.Height - 30f && cy < baseY + 12f)
+                sway += MathF.Sign(cdx) * (1f - MathF.Abs(cdx) / 55f) * 7f * s;
+            Blade(px, w, h, c.X, baseY, c.Height, sway, 1.1f * s, 60 * night, 108 * night, 44 * night, 96 * night, 150 * night, 70 * night);
+            float hx = c.X + sway, hy = baseY - c.Height;
+            Disc(px, w, h, hx, hy, 1.3f * s, 0.95f, 150 * night, 140 * night, 90 * night, soft: true); // the seed head
+            float full = c.Full < 0.6f ? 0f : (c.Full - 0.6f) / 0.4f;
+            if (full <= 0.01f) continue;
+            float r = 5.2f * s * (0.5f + 0.5f * full);
+            Glow(px, w, h, hx, hy, r * 1.25f, 0.42f * full * night, 255, 252, 240);
+            for (int k = 0; k < 16; k++)
+            {
+                float a = k * 6.283f / 16f + c.Slot;
+                Disc(px, w, h, hx + MathF.Cos(a) * r, hy + MathF.Sin(a) * r, 0.55f * s, 0.75f * full * night, 255, 255, 250, soft: true);
+            }
+        }
+    }
+}
+
+internal static unsafe partial class Renderer
+{
+    static readonly float[,] Spectrum =
+    {
+        { 255, 64, 64 }, { 255, 150, 48 }, { 255, 230, 84 }, { 92, 214, 96 }, { 72, 146, 255 }, { 150, 96, 232 },
+    };
+
+    /// <summary>
+    /// After a spring shower clears, a faint rainbow arcs across the sky behind the windows, fading
+    /// in over a few seconds and out again.
+    /// </summary>
+    static void DrawRainbow(uint* px, int w, int h, SnowSim sim)
+    {
+        float t = sim.Rainbow;
+        if (t <= 0) return;
+        float age = SnowSim.RainbowLife - t;
+        float alpha = MathF.Min(1f, age / 5f) * MathF.Min(1f, t / 8f) * 0.24f;
+        if (alpha <= 0.003f) return;
+        float cx = w * 0.58f, cy = h * 1.32f, R = h * 1.14f, B = h * 0.075f;
+        float rIn = R - B;
+        int top = Math.Max(0, (int)(cy - R));
+        Mark(0, top, w, h);
+        _clip = true;
+        for (int y = top; y < h; y++)
+        {
+            float dy = y + 0.5f - cy, dy2 = dy * dy;
+            if (dy2 > R * R) continue;
+            float xo = MathF.Sqrt(R * R - dy2), xi = dy2 < rIn * rIn ? MathF.Sqrt(rIn * rIn - dy2) : 0f;
+            uint* row = px + y * w;
+            for (int side = -1; side <= 1; side += 2)
+            {
+                int x0 = (int)MathF.Floor(side < 0 ? cx - xo : cx + xi), x1 = (int)MathF.Ceiling(side < 0 ? cx - xi : cx + xo);
+                x0 = Math.Max(x0, 0); x1 = Math.Min(x1, w);
+                for (int x = x0; x < x1; x++)
+                {
+                    float dx = x + 0.5f - cx;
+                    float u = (R - MathF.Sqrt(dx * dx + dy2)) / B; // 0 outer edge (red) .. 1 inner (violet)
+                    if (u <= 0f || u >= 1f) continue;
+                    if (Covered(x, y)) continue;
+                    float edge = MathF.Min(1f, MathF.Min(u, 1f - u) / 0.18f);
+                    float fi = u * 5f;
+                    int i0 = Math.Min((int)fi, 4);
+                    float f = fi - i0;
+                    float r = Spectrum[i0, 0] + (Spectrum[i0 + 1, 0] - Spectrum[i0, 0]) * f;
+                    float g = Spectrum[i0, 1] + (Spectrum[i0 + 1, 1] - Spectrum[i0, 1]) * f;
+                    float b = Spectrum[i0, 2] + (Spectrum[i0 + 1, 2] - Spectrum[i0, 2]) * f;
+                    Blend(row + x, r, g, b, alpha * edge * edge);
+                }
+            }
+        }
+        _clip = false;
+    }
+
+    /// <summary>A thin ring spreading on the wet taskbar.</summary>
+    static void Ripple(uint* px, int w, int h, float cx, float cy, float r, float alpha)
+    {
+        float rx = r, ry = r * 0.3f;
+        int x0 = Math.Max((int)(cx - rx - 2), 0), x1 = Math.Min((int)(cx + rx + 2), w);
+        int y0 = Math.Max((int)(cy - ry - 2), 0), y1 = Math.Min((int)(cy + ry + 2), h);
+        for (int y = y0; y < y1; y++)
+        {
+            float dy = (y + 0.5f - cy) / ry;
+            for (int x = x0; x < x1; x++)
+            {
+                float dx = (x + 0.5f - cx) / rx;
+                float e = MathF.Sqrt(dx * dx + dy * dy);
+                float cov = 1f - MathF.Abs(e - 1f) * rx / 1.1f;
+                if (cov <= 0) continue;
+                Blend(px + y * w + x, 214, 230, 250, alpha * MathF.Min(cov, 1f));
             }
         }
     }

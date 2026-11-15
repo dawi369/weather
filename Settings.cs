@@ -45,6 +45,7 @@ internal sealed class Settings
     public bool Meadow { get; set; } = true;           // grass and flowers on the taskbar, spring and summer
     public bool Fireflies { get; set; } = true;        // summer nights
     public bool DustDevils { get; set; } = true;       // autumn
+    public bool Visitors { get; set; } = true;         // robins on the ledges, ladybirds on the windows
 
     // Performance
     public bool BatterySaver { get; set; } = true;     // on battery: 30 fps, less falling

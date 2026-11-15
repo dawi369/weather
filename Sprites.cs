@@ -15,7 +15,7 @@ internal sealed class Sprite
 /// All the little pictures the seasons need, drawn procedurally (vector paths, anti-aliased) once at
 /// startup and kept as premultiplied pixel arrays, so drawing one per frame is just a small blend.
 /// </summary>
-internal static class Sprites
+internal static partial class Sprites
 {
     public const int Rotations = 16;
 
@@ -46,6 +46,7 @@ internal static class Sprites
         Scale = s;
         _leaves = _petals = _seeds = _butterflies = null;
         _leavesLying = _petalsLying = null;
+        _robin = _ladybird = null;
     }
 
     /// <summary>Render a sprite designed at w×h (96 DPI) at the current <see cref="Scale"/>.</summary>

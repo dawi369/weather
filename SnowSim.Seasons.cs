@@ -13,7 +13,11 @@ internal sealed partial class SnowSim
     float Amount = 1f;
     bool _seasonInit, _melting;
     float _clockCheck;
-    static readonly bool ForceNight = Environment.GetEnvironmentVariable("WEATHER_NIGHT") == "1";
+    // Tests: WEATHER_NIGHT=1 forces night, 0 forces day.
+    static readonly string? NightEnv = Environment.GetEnvironmentVariable("WEATHER_NIGHT");
+
+    /// <summary>Daylight (butterflies, ladybirds and rainbows are about).</summary>
+    public bool IsDay { get; private set; } = true;
 
     /// <summary>Night time (fireflies come out in summer).</summary>
     public bool Night { get; private set; }
@@ -44,7 +48,7 @@ internal sealed partial class SnowSim
         switch (Material)
         {
             case Material.Petals:
-                MaxDepth = Math.Clamp(MaxDepth * 0.35f, 5f, 14f);
+                MaxDepth = Math.Clamp(MaxDepth * 0.45f, 6f, 16f);
                 Repose *= 0.6f;
                 EdgeLimit = MathF.Min(EdgeLimit, MaxDepth * 0.8f);
                 break;
@@ -61,6 +65,7 @@ internal sealed partial class SnowSim
         _butterfliesOn = st.Butterflies;
         _firefliesOn = st.Fireflies;
         _devilsOn = st.DustDevils;
+        _visitorsOn = st.Visitors;
         MeadowOn = st.Meadow;
     }
 
@@ -85,8 +90,10 @@ internal sealed partial class SnowSim
         _melting = true;
         foreach (var sm in Snowmen) sm.Melting = true;
         foreach (var c in Critters) c.State = 2;
+        foreach (var v in Visitors) FlyOff(v);
         Holding = false;
         RainLevel = _rainTarget = 0;
+        Rainbow = 0;
         SetSeason(next);
     }
 
@@ -98,7 +105,8 @@ internal sealed partial class SnowSim
         {
             _clockCheck = 5f;
             int hour = DateTime.Now.Hour;
-            Night = ForceNight || hour >= 20 || hour < 5;
+            Night = NightEnv == "1" || NightEnv != "0" && (hour >= 20 || hour < 5);
+            IsDay = NightEnv == "0" || NightEnv != "1" && hour is >= 7 and < 20;
         }
         if (_melting)
         {
@@ -172,6 +180,15 @@ internal sealed partial class SnowSim
             else _showerTimer = 60f;
         }
         RainLevel += (_rainTarget - RainLevel) * MathF.Min(1f, dt * 0.3f);
+        // A rainbow when a decent shower clears (in daylight).
+        _rainPeak = MathF.Max(_rainPeak, RainLevel);
+        if (_demoRainbow) { _demoRainbow = false; Rainbow = RainbowLife; }
+        if (Rainbow > 0) Rainbow -= dt;
+        if (_rainTarget == 0 && RainLevel < 0.08f && _rainPeak > 0.3f)
+        {
+            _rainPeak = 0;
+            if (IsDay) Rainbow = RainbowLife;
+        }
         if (RainLevel < 0.002f && _rainTarget == 0) RainLevel = 0;
     }
 
@@ -227,7 +244,7 @@ internal sealed partial class SnowSim
 
     void SpawnSeeds(float dt)
     {
-        _spawnAcc += SpawnRate() * 0.02f * Amount * (Night ? 0.25f : 1f) * dt; // few seeds about at night
+        _spawnAcc += SpawnRate() * 0.03f * Amount * (Night ? 0.25f : 1f) * dt; // few seeds about at night
         while (_spawnAcc >= 1f)
         {
             _spawnAcc -= 1f;
@@ -243,7 +260,7 @@ internal sealed partial class SnowSim
         // Sunlit pollen motes drift and twinkle in the warm air by day.
         if (!Night)
         {
-            _moteAcc += SpawnRate() * 0.03f * Amount * dt;
+            _moteAcc += SpawnRate() * 0.05f * Amount * dt;
             while (_moteAcc >= 1f && Count < MaxParticles)
             {
                 _moteAcc -= 1f;
@@ -380,5 +397,25 @@ internal sealed partial class SnowSim
         p.VY += (tvy - p.VY) * k;
         p.X += p.VX * dt;
         p.Y += p.VY * dt;
+    }
+}
+
+internal sealed partial class SnowSim
+{
+    public const float RainbowLife = 30f;
+    /// <summary>Seconds of rainbow left (it fades in and out).</summary>
+    public float Rainbow;
+    float _rainPeak;
+    bool _demoRainbow = Environment.GetEnvironmentVariable("WEATHER_RAINBOW") == "1"; // tests: show one straight away
+
+    /// <summary>A ring spreading on the wet taskbar where a raindrop landed.</summary>
+    void AddRipple(float x, float y)
+    {
+        if (Count >= MaxParticles) return;
+        ref var p = ref NewParticle(PKind.Ripple);
+        p.X = x; p.Y = y;
+        p.R = 1f;
+        p.Age = p.Fade = R(0.5f, 0.8f);
+        p.Alpha = 0.5f;
     }
 }
