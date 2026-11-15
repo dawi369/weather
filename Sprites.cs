@@ -46,7 +46,7 @@ internal static partial class Sprites
         Scale = s;
         _leaves = _petals = _seeds = _butterflies = null;
         _leavesLying = _petalsLying = null;
-        _robin = _ladybird = null;
+        _robin = _ladybird = _bee = null;
     }
 
     /// <summary>Render a sprite designed at w×h (96 DPI) at the current <see cref="Scale"/>.</summary>

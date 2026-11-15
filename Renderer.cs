@@ -40,6 +40,7 @@ internal static unsafe partial class Renderer
 
         DrawCritters(px, w, h, sim);
         DrawVisitors(px, w, h, sim, ground: false, 0);
+        DrawBees(px, w, h, sim);
         DrawSplats(px, w, h, sim);
         if (sim.Holding)
         {
@@ -94,7 +95,7 @@ internal static unsafe partial class Renderer
                     Disc(px, w, h, p.X, py, p.R, a, 255, 255, 255, soft: true);
                 }
                 else if (p.Shape == 255) Fluffy(px, w, h, p.X, py, ref p, a);
-                else if (p.Shape == 254) Glow(px, w, h, p.X, py, p.R * 1.8f, a, 250, 252, 255); // out-of-focus near flake
+                else if (p.Shape == 254) Glow(px, w, h, p.X, py, p.R * 1.6f, MathF.Min(1f, a * 1.6f), 255, 255, 255); // out-of-focus near flake
                 else if (landed)
                 {
                     // A crystal that landed melts into the snow: its arms fade first, leaving a

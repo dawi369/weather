@@ -587,7 +587,7 @@ internal static unsafe partial class Renderer
                 frame = robin ? (v.Action == 2 ? 1 : v.Action == 1 && v.Lift > 1f ? 2 : 0)
                               : (v.Action == 2 ? 2 : v.Action == 1 ? ((int)(v.Phase * 10f)) & 1 : 0);
             else
-                frame = robin ? (MathF.Sin(v.Age * 22f) > 0 ? 2 : 3) : 2;
+                frame = robin ? (MathF.Sin(v.Age * 22f) > 0 ? 2 : 3) : 0;
             var img = robin ? Sprites.Robin(frame) : Sprites.Ladybird(frame);
             _clip = false;
             if (v.State != 1 && !ground)
@@ -598,6 +598,13 @@ internal static unsafe partial class Renderer
             }
             float k = robin ? 1.6f : 2.6f; // a touch bigger than life, so they read at a glance
             Blit(px, w, h, img, v.X, v.Y - yOff, v.Dir * k, k, 1f, 0f, pivotY: robin ? 0.98f : 0.99f);
+            if (!robin && v.State != 1)
+            {
+                // A ladybird in flight: its wing cases up and a blur of beating wings above it.
+                float ws = img.H * k, flap = 0.6f + 0.4f * MathF.Abs(MathF.Sin(v.Age * 45f));
+                Glow(px, w, h, v.X - v.Dir * ws * 0.25f, v.Y - yOff - ws * 0.95f, ws * 0.45f * flap, 0.55f, 225, 232, 245);
+                Glow(px, w, h, v.X + v.Dir * ws * 0.1f, v.Y - yOff - ws * 0.85f, ws * 0.35f * flap, 0.5f, 225, 232, 245);
+            }
         }
         _clip = false;
     }
@@ -651,7 +658,7 @@ internal static unsafe partial class Renderer
         float age = SnowSim.RainbowLife - t;
         float alpha = MathF.Min(1f, age / 5f) * MathF.Min(1f, t / 8f) * 0.72f;
         if (alpha <= 0.003f) return;
-        float cx = w * 0.58f, cy = h * 1.32f, R = h * 1.14f, B = h * 0.055f;
+        float cx = w * 0.58f, cy = h * 1.32f, R = h * 1.14f, B = h * 0.085f;
         float rIn = R - B;
         int top = Math.Max(0, (int)(cy - R));
         Mark(0, top, w, h);
@@ -672,7 +679,7 @@ internal static unsafe partial class Renderer
                     float u = (R - MathF.Sqrt(dx * dx + dy2)) / B; // 0 outer edge (red) .. 1 inner (violet)
                     if (u <= 0f || u >= 1f) continue;
                     if (Covered(x, y)) continue;
-                    float edge = MathF.Min(1f, MathF.Min(u, 1f - u) / 0.18f);
+                    float edge = MathF.Min(1f, MathF.Min(u, 1f - u) / 0.3f); // soft, glowing edges
                     float fi = u * 5f;
                     int i0 = Math.Min((int)fi, 4);
                     float f = fi - i0;
@@ -717,11 +724,12 @@ internal static unsafe partial class Renderer
     {
         if (s.Cells == 0 || s.Clamped || s.IsGround) return;
         float sc = MathF.Max(1f, _scale * 0.7f);
-        float night = sim.Night ? 0.45f : 1f;
+        // At night the grass catches a little moonlight: dimmer and bluer, not black.
+        float night = sim.Night ? 0.62f : 1f, moon = sim.Night ? 40f : 0f;
         int step = Math.Max(4, (int)(13f * sc));
         int width = s.Right - s.Left;
         float baseY = s.AnchorY;
-        Mark(s.Left, baseY - 16f * sc, s.Right, baseY + 1);
+        Mark(s.Left, baseY - 24f * sc, s.Right, baseY + 1);
         for (int xr = step / 2; xr < width - step / 2; xr += step)
         {
             float hA = Hash01(xr, s.Seed + 501);
@@ -735,18 +743,35 @@ internal static unsafe partial class Renderer
             for (int b = 0; b < blades; b++)
             {
                 float bx = x + (b - blades / 2f) * 1.6f * sc;
-                float bh = (3.5f + 5f * Hash01(xr * 7 + b, s.Seed + 504)) * sc;
+                float bh = (5.5f + 8f * Hash01(xr * 7 + b, s.Seed + 504)) * sc;
                 float lean = sway + (b - blades / 2f) * 0.9f * sc;
                 float v = 0.85f + 0.3f * Hash01(xr + b, s.Seed + 505);
-                Blade(px, w, h, bx, baseY, bh, lean, 1.2f * sc, 58 * v * night, 104 * v * night, 40 * v * night, 150 * v * night, 184 * v * night, 80 * v * night);
+                Blade(px, w, h, bx, baseY, bh, lean, 1.4f * sc, 66 * v * night, 122 * v * night, 46 * v * night + moon, 168 * v * night, 210 * v * night, 92 * v * night + moon);
             }
             float fl = Hash01(xr, s.Seed + 506);
-            if (fl > 0.86f)
+            if (fl > 0.8f)
             {
-                float fh = 9f * sc;
+                float fh = 13f * sc;
                 Blade(px, w, h, x, baseY, fh, sway * 1.4f, 0.8f * sc, 50 * night, 100 * night, 40 * night, 80 * night, 140 * night, 60 * night);
-                Bloom(px, w, h, x + sway * 1.4f, baseY - fh, fl > 0.93f ? 2 : 3, true, sc * 0.8f);
+                Bloom(px, w, h, x + sway * 1.4f, baseY - fh, fl > 0.93f ? 2 : 3, true, sc * 1.15f);
             }
         }
+    }
+}
+
+internal static unsafe partial class Renderer
+{
+    static void DrawBees(uint* px, int w, int h, SnowSim sim)
+    {
+        foreach (var b in sim.Bees)
+        {
+            var img = Sprites.Bee(((int)(b.Age * 40f)) & 1);
+            float k = 1.4f, e = img.W * k;
+            int cover = Coverage(b.X - e, b.Y - e, b.X + e, b.Y + e);
+            if (cover == 2) continue;
+            _clip = cover == 1;
+            Blit(px, w, h, img, b.X, b.Y, b.Dir * k, k, 1f);
+        }
+        _clip = false;
     }
 }

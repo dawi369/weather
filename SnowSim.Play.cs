@@ -122,6 +122,7 @@ internal sealed partial class SnowSim
         AutoEvents(dt);
         UpdateVisitors(dt);
         UpdateClocks(dt);
+        UpdateBees(dt);
         AutoVisitors(dt);
     }
 
@@ -204,6 +205,7 @@ internal sealed partial class SnowSim
                 {
                     for (int k = 0; k < 3; k++) AddButterfly(0, 0, fromEdge: true);
                     AddVisitor(VisitorKind.Ladybird);
+                    if (Season == Season.Summer) for (int k = 0; k < 2; k++) Bees.Add(new Bee { X = R() < 0.5f ? -20f : ScreenW + 20f, Y = Ground.AnchorY - R(60f, 200f), Life = R(40f, 90f) });
                 }
                 else AddVisitor(VisitorKind.Robin);
                 break;

@@ -121,3 +121,50 @@ internal static partial class Sprites
         return all;
     }
 }
+
+internal static partial class Sprites
+{
+    static Sprite[]? _bee;
+
+    /// <summary>A bumblebee facing right; frames 0/1 are the wing beat.</summary>
+    public static Sprite Bee(int frame)
+    {
+        _bee ??= BuildBee();
+        return _bee[frame & 1];
+    }
+
+    static Sprite[] BuildBee()
+    {
+        var all = new Sprite[2];
+        for (int f = 0; f < 2; f++)
+        {
+            int frame = f;
+            all[f] = RenderScaled(14, 12, g =>
+            {
+                g.TranslateTransform(7f, 7f);
+                // Wings, a pale blur above the body
+                using (var wing = new SolidBrush(Color.FromArgb(150, 236, 244, 255)))
+                {
+                    if (frame == 0) { g.FillEllipse(wing, -3.5f, -6.5f, 4.5f, 4.5f); g.FillEllipse(wing, -0.5f, -6f, 4f, 4f); }
+                    else { g.FillEllipse(wing, -4.5f, -4.8f, 5f, 3f); g.FillEllipse(wing, -1f, -4.4f, 4.6f, 2.8f); }
+                }
+                // Furry striped body
+                using var path = new GraphicsPath();
+                path.AddEllipse(-4.6f, -2.6f, 8.6f, 5.6f);
+                using (var body = new SolidBrush(Color.FromArgb(250, 196, 44))) g.FillPath(body, path);
+                var st = g.Save();
+                g.SetClip(path);
+                using (var stripe = new SolidBrush(Color.FromArgb(40, 30, 24)))
+                {
+                    g.FillRectangle(stripe, -2.6f, -3f, 1.5f, 7f);
+                    g.FillRectangle(stripe, 0.3f, -3f, 1.5f, 7f);
+                    g.FillRectangle(stripe, -4.8f, -3f, 0.9f, 7f);
+                }
+                g.Restore(st);
+                using (var head = new SolidBrush(Color.FromArgb(40, 30, 24))) g.FillEllipse(head, 3f, -1.8f, 3.4f, 3.4f);
+                using (var shine = new SolidBrush(Color.FromArgb(120, 255, 255, 255))) g.FillEllipse(shine, -2f, -2.2f, 2.6f, 1f);
+            });
+        }
+        return all;
+    }
+}
