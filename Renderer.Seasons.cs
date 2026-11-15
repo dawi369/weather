@@ -381,13 +381,13 @@ internal static unsafe partial class Renderer
             if (c.Firefly)
             {
                 if (c.Glow < 0.02f) continue;
-                float r = 7f * _scale;
-                float e = r * 2.3f; // the outer glow reaches 2.2r
+                float r = 10f * _scale;
+                float e = r * 3.1f; // the outer glow reaches 3r
                 int cover = Coverage(c.X - e, c.Y - e, c.X + e, c.Y + e);
                 if (cover == 2) continue;
                 _clip = cover == 1;
-                Glow(px, w, h, c.X, c.Y, r * 2.2f, 0.42f * c.Glow, 190, 255, 110);
-                Glow(px, w, h, c.X, c.Y, r * 0.8f, 0.55f * c.Glow, 225, 255, 160);
+                Glow(px, w, h, c.X, c.Y, r * 3f, 0.5f * c.Glow, 190, 255, 110);
+                Glow(px, w, h, c.X, c.Y, r * 0.9f, 0.7f * c.Glow, 225, 255, 160);
                 Disc(px, w, h, c.X, c.Y, 1.2f * _scale, 0.95f * c.Glow, 255, 255, 205, soft: true);
                 continue;
             }
@@ -455,7 +455,7 @@ internal static unsafe partial class Renderer
         // Base and tip colours (fresh green in spring, sun-ripened in summer).
         float br = summer ? 58 : 44, bg = summer ? 100 : 112, bb = summer ? 36 : 46;
         float tr = summer ? 156 : 122, tg = summer ? 176 : 198, tb = summer ? 74 : 92;
-        for (int bx = 0; bx < w; bx += 3)
+        for (int bx = 0; bx < w; bx += 2)
         {
             float hx = Hash01(bx, 7771), hy = Hash01(bx, 9133), hz = Hash01(bx, 4211);
             float x = bx + hx * 3f;
@@ -467,7 +467,7 @@ internal static unsafe partial class Renderer
             if (v != null && MathF.Abs(x - v.X) < v.W * 0.55f) H *= 0.25f;
             float vary = (0.82f + 0.3f * hz) * night;
             Blade(px, w, h, x, baseY, H, sway, 1.5f * s, br * vary, bg * vary, bb * vary, tr * vary, tg * vary, tb * vary);
-            if (hz > 0.972f)
+            if (hz > 0.982f)
             {
                 float fh = H * 1.4f + 4f * s;
                 float fs = sway * 1.3f;
@@ -647,9 +647,9 @@ internal static unsafe partial class Renderer
         float t = sim.Rainbow;
         if (t <= 0) return;
         float age = SnowSim.RainbowLife - t;
-        float alpha = MathF.Min(1f, age / 5f) * MathF.Min(1f, t / 8f) * 0.24f;
+        float alpha = MathF.Min(1f, age / 5f) * MathF.Min(1f, t / 8f) * 0.4f;
         if (alpha <= 0.003f) return;
-        float cx = w * 0.58f, cy = h * 1.32f, R = h * 1.14f, B = h * 0.075f;
+        float cx = w * 0.58f, cy = h * 1.32f, R = h * 1.14f, B = h * 0.055f;
         float rIn = R - B;
         int top = Math.Max(0, (int)(cy - R));
         Mark(0, top, w, h);

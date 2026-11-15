@@ -127,7 +127,7 @@ internal sealed partial class SnowSim
                     v.X = s.Left + v.RelX;
                     int col = s.Col(v.X);
                     if (s.Vis[col] == 0) { FlyOff(v); continue; }
-                    baseY = s.PileTop(col) + 1f;
+                    baseY = s.PileTop(col);
                 }
                 StepPerched(v, dt, sc);
                 v.Y = baseY - v.Lift;

@@ -38,7 +38,6 @@ internal sealed class Vehicle
 
 internal sealed class Splat
 {
-    public IntPtr Hwnd;                 // Zero: on the desktop (screen coordinates)
     public float RelX, RelY, R, Age;
     public int Seed;
 }
@@ -350,18 +349,15 @@ internal sealed partial class SnowSim
         {
             var sp = Splats[i];
             sp.Age += dt;
-            sp.RelY += 9f * MathF.Exp(-sp.Age * 0.6f) * dt; // slides down the glass a little, slowing
-            if (sp.Age > 6.5f || sp.Hwnd != IntPtr.Zero && !_windows.ContainsKey(sp.Hwnd)) Splats.RemoveAt(i);
+            sp.RelY += 9f * MathF.Exp(-sp.Age * 0.6f) * dt; // slumps down a little, slowing
+            if (sp.Age > 6.5f) Splats.RemoveAt(i);
         }
     }
 
-    /// <summary>Where a splat is on screen right now (it rides along with its window).</summary>
+    /// <summary>Where a splat is on screen (they are all on the desktop, in screen coordinates).</summary>
     public bool SplatPos(Splat sp, out float x, out float y)
     {
         x = sp.RelX; y = sp.RelY;
-        if (sp.Hwnd == IntPtr.Zero) return true;
-        if (!_windows.TryGetValue(sp.Hwnd, out var s)) return false;
-        x += s.Left; y += s.Top;
         return true;
     }
 
@@ -823,6 +819,17 @@ internal sealed partial class SnowSim
             f.Timer = R(2f, 6f);
             f.TX = Math.Clamp(f.X + R(-160f, 160f), 0f, ScreenW);
             f.TY = Math.Clamp(f.Y + R(-90f, 90f), ScreenH * 0.2f, Ground.AnchorY - 6f);
+            // Now and then one drifts up to hover along a window's top edge.
+            if (Z.Count > 0 && R() < 0.3f)
+            {
+                var s = Z[_rng.Next(Z.Count)];
+                if (!s.Clamped && s.Right > 0 && s.Left < ScreenW && s.AnchorY > 80)
+                {
+                    f.TX = Math.Clamp(R(s.Left, s.Right), 0f, ScreenW);
+                    f.TY = s.AnchorY - R(6f, 40f);
+                    f.Timer = R(5f, 10f);
+                }
+            }
         }
         float dx = f.TX - f.X, dy = f.TY - f.Y;
         float k = gather ? 0.9f : 0.35f;

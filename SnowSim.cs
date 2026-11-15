@@ -1591,11 +1591,11 @@ internal sealed partial class SnowSim
         // little, the way a slab crumbles, rather than as one round ball or a string of beads.
         float cx0 = edgeX + side * reach * 0.5f, cy0 = s.AnchorY - hEdge * 0.3f;
         AddClump(cx0, cy0, slab * 0.55f, vx, vy, PKind.Clump);
-        int bits = 3 + _rng.Next(3);
+        int bits = Material == Material.Snow ? 3 + _rng.Next(3) : 1; // leaves and petals: a few, not a wall
         for (int k = 0; k < bits; k++)
             AddClump(cx0 + R(-1f, 1f) * MathF.Max(3f, reach), cy0 + R(-0.6f, 0.8f) * MathF.Max(2f, hEdge * 0.5f), slab * 0.45f / bits,
                      vx + R(-6f, 6f), vy + R(-4f, 8f), PKind.Clump);
-        for (int k = 0; k < 5; k++)
+        for (int k = 0; k < (Material == Material.Snow ? 2 : 0); k++)
             AddClump(edgeX + side * reach * R(0f, 1f), s.AnchorY - hEdge * R(0f, 0.8f), 0f, vx + R(-25f, 25f), vy - R(10f, 50f), PKind.Powder);
     }
 
