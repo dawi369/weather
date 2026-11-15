@@ -448,7 +448,7 @@ internal static unsafe partial class Renderer
     {
         bool summer = sim.Season == Season.Summer;
         _bloomMoon = sim.Night ? 1f : 0f;
-        float night = sim.Night ? 0.42f : 1f; // the meadow darkens after dusk
+        float night = sim.Night ? 0.62f : 1f; // the meadow dims after dusk, but stays visible in the moonlight
         float baseY = sim.Ground.AnchorY - yOff;
         float wind = sim.Wind, cy = sim.CursorY - yOff;
         var v = sim.Vehicle;
@@ -709,7 +709,7 @@ internal static unsafe partial class Renderer
                 float e = MathF.Sqrt(dx * dx + dy * dy);
                 float cov = 1f - MathF.Abs(e - 1f) * rx / 1.1f;
                 if (cov <= 0) continue;
-                Blend(px + y * w + x, 214, 230, 250, alpha * MathF.Min(cov, 1f));
+                Blend(px + y * w + x, 235, 242, 255, alpha * MathF.Min(cov, 1f));
             }
         }
     }
@@ -728,7 +728,7 @@ internal static unsafe partial class Renderer
         // At night the grass catches a little moonlight: dimmer and bluer, not black.
         float night = sim.Night ? 0.7f : 1f, moon = sim.Night ? 70f : 0f;
         _bloomMoon = sim.Night ? 1f : 0f;
-        int step = Math.Max(4, (int)(8f * sc));
+        int step = Math.Max(4, (int)(10f * sc));
         int width = s.Right - s.Left;
         float baseY = s.AnchorY;
         Mark(s.Left - 12, baseY - 46f * sc, s.Right + 12, baseY + 1);
@@ -750,7 +750,7 @@ internal static unsafe partial class Renderer
                 float bh = (5.5f + 8f * Hash01(xr * 7 + b, s.Seed + 504)) * sc * (0.7f + 0.6f * clump);
                 float lean = sway + (b - blades / 2f) * 0.9f * sc;
                 float v = 0.85f + 0.3f * Hash01(xr + b, s.Seed + 505);
-                Blade(px, w, h, bx, baseY, bh, lean, 1.4f * sc, 66 * v * night, 122 * v * night, 46 * v * night + moon, 168 * v * night, 210 * v * night, 92 * v * night + moon);
+                Blade(px, w, h, bx, baseY, bh, lean, 1.4f * sc, 40 * v * night, 86 * v * night, 30 * v * night + moon, 168 * v * night, 210 * v * night, 92 * v * night + moon);
             }
             float fl = Hash01(xr, s.Seed + 506);
             if (fl > 0.72f)

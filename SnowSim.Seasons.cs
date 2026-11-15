@@ -418,6 +418,6 @@ internal sealed partial class SnowSim
         p.X = x; p.Y = y;
         p.R = 1f;
         p.Age = p.Fade = R(0.5f, 0.8f);
-        p.Alpha = 0.5f;
+        p.Alpha = 0.8f;
     }
 }

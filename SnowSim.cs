@@ -962,7 +962,7 @@ internal sealed partial class SnowSim
                 case PKind.Ripple:
                     p.Age -= dt;
                     if (p.Age <= 0) { Particles[n] = Particles[--Count]; continue; }
-                    p.R += 16f * UiScale * 0.7f * dt;
+                    p.R += 30f * UiScale * 0.7f * dt;
                     n++;
                     continue;
                 case PKind.Smoke:
