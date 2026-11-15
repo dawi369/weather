@@ -11,6 +11,8 @@ internal static unsafe partial class Renderer
         _mat = sim.Material;
         _scale = sim.UiScale;
         for (int k = sim.Z.Count - 1; k >= 0; k--) DrawPile(px, w, h, sim.Z[k], 0);
+        if (sim.Season == Season.Summer && sim.MeadowOn)
+            for (int k = sim.Z.Count - 1; k >= 0; k--) DrawSill(px, w, h, sim, sim.Z[k]);
         foreach (var s in sim.Z)
             if (s.LinkR != null) DrawBridge(px, w, h, s, s.LinkR);
 
@@ -63,7 +65,7 @@ internal static unsafe partial class Renderer
             float ss = Sprites.Scale;
             float ext = p.Kind switch
             {
-                PKind.Flake => p.Shape is > 0 and < 255 ? p.R * 1.5f + 5f : p.R + 3f + MathF.Abs(p.VY) * 0.015f,
+                PKind.Flake => p.Shape == 254 ? p.R * 2f + 2f : p.Shape is > 0 and < 254 ? p.R * 1.5f + 5f : p.R + 3f + MathF.Abs(p.VY) * 0.015f,
                 PKind.Leaf => 9.5f * ss * p.R + 2f,
                 PKind.Petal => 6.5f * ss * p.R + 2f,
                 PKind.Seed => (10f * ss + 3f) * p.R + 6f * _scale,
@@ -92,6 +94,7 @@ internal static unsafe partial class Renderer
                     Disc(px, w, h, p.X, py, p.R, a, 255, 255, 255, soft: true);
                 }
                 else if (p.Shape == 255) Fluffy(px, w, h, p.X, py, ref p, a);
+                else if (p.Shape == 254) Glow(px, w, h, p.X, py, p.R * 1.8f, a, 250, 252, 255); // out-of-focus near flake
                 else if (landed)
                 {
                     // A crystal that landed melts into the snow: its arms fade first, leaving a

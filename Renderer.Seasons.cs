@@ -469,10 +469,12 @@ internal static unsafe partial class Renderer
             Blade(px, w, h, x, baseY, H, sway, 1.5f * s, br * vary, bg * vary, bb * vary, tr * vary, tg * vary, tb * vary);
             if (hz > (summer ? 0.982f : 0.966f))
             {
-                float fh = H * 1.4f + 4f * s;
-                float fs = sway * 1.3f;
-                Blade(px, w, h, x + 1f, baseY, fh, fs, 0.9f * s, 50, 104, 40, 80, 140, 60);
-                Bloom(px, w, h, x + 1f + fs, baseY - fh, (int)(Hash01(bx, 555) * 3.999f), summer, s);
+                // Most flowers stand a little above the grass; a few tall ones stand well clear of it.
+                bool tall = Hash01(bx, 556) > 0.82f;
+                float fh = H * (tall ? 2.3f : 1.4f) + 4f * s;
+                float fs = sway * (tall ? 1.8f : 1.3f);
+                Blade(px, w, h, x + 1f, baseY, fh, fs, (tall ? 1.1f : 0.9f) * s, 50, 104, 40, 80, 140, 60);
+                Bloom(px, w, h, x + 1f + fs, baseY - fh, (int)(Hash01(bx, 555) * 3.999f), summer, s * (tall ? 1.5f : 1f));
             }
         }
     }
@@ -647,7 +649,7 @@ internal static unsafe partial class Renderer
         float t = sim.Rainbow;
         if (t <= 0) return;
         float age = SnowSim.RainbowLife - t;
-        float alpha = MathF.Min(1f, age / 5f) * MathF.Min(1f, t / 8f) * 0.55f;
+        float alpha = MathF.Min(1f, age / 5f) * MathF.Min(1f, t / 8f) * 0.72f;
         if (alpha <= 0.003f) return;
         float cx = w * 0.58f, cy = h * 1.32f, R = h * 1.14f, B = h * 0.055f;
         float rIn = R - B;
@@ -700,6 +702,50 @@ internal static unsafe partial class Renderer
                 float cov = 1f - MathF.Abs(e - 1f) * rx / 1.1f;
                 if (cov <= 0) continue;
                 Blend(px + y * w + x, 214, 230, 250, alpha * MathF.Min(cov, 1f));
+            }
+        }
+    }
+}
+
+internal static unsafe partial class Renderer
+{
+    /// <summary>
+    /// Summer: a windowsill garden. Little tufts of grass, the odd clover or daisy, grow along each
+    /// window's top edge and sway in the breeze (fixed to the window, so they ride along with it).
+    /// </summary>
+    static void DrawSill(uint* px, int w, int h, SnowSim sim, Surface s)
+    {
+        if (s.Cells == 0 || s.Clamped || s.IsGround) return;
+        float sc = MathF.Max(1f, _scale * 0.7f);
+        float night = sim.Night ? 0.45f : 1f;
+        int step = Math.Max(4, (int)(13f * sc));
+        int width = s.Right - s.Left;
+        float baseY = s.AnchorY;
+        Mark(s.Left, baseY - 16f * sc, s.Right, baseY + 1);
+        for (int xr = step / 2; xr < width - step / 2; xr += step)
+        {
+            float hA = Hash01(xr, s.Seed + 501);
+            if (hA < 0.45f) continue; // gaps between the tufts
+            float x = s.Left + xr + (Hash01(xr, s.Seed + 502) - 0.5f) * step * 0.6f;
+            if (x < 0 || x >= w) continue;
+            int col = Math.Clamp((int)((x - s.Left) / SnowSim.Cell), 0, s.Cells - 1);
+            if (s.Vis[col] == 0) continue;
+            int blades = 3 + (int)(Hash01(xr, s.Seed + 503) * 3f);
+            float sway = (sim.Wind * 0.03f + MathF.Sin(_time * 1.8f + x * 0.03f) * 0.8f) * sc;
+            for (int b = 0; b < blades; b++)
+            {
+                float bx = x + (b - blades / 2f) * 1.6f * sc;
+                float bh = (3.5f + 5f * Hash01(xr * 7 + b, s.Seed + 504)) * sc;
+                float lean = sway + (b - blades / 2f) * 0.9f * sc;
+                float v = 0.85f + 0.3f * Hash01(xr + b, s.Seed + 505);
+                Blade(px, w, h, bx, baseY, bh, lean, 1.2f * sc, 58 * v * night, 104 * v * night, 40 * v * night, 150 * v * night, 184 * v * night, 80 * v * night);
+            }
+            float fl = Hash01(xr, s.Seed + 506);
+            if (fl > 0.86f)
+            {
+                float fh = 9f * sc;
+                Blade(px, w, h, x, baseY, fh, sway * 1.4f, 0.8f * sc, 50 * night, 100 * night, 40 * night, 80 * night, 140 * night, 60 * night);
+                Bloom(px, w, h, x + sway * 1.4f, baseY - fh, fl > 0.93f ? 2 : 3, true, sc * 0.8f);
             }
         }
     }

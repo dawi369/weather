@@ -823,6 +823,16 @@ internal sealed partial class SnowSim
                 }
                 else if (roll < 0.7f) p.Shape = 255; // a fluffy aggregate of several crystals
             }
+            if (R() < 0.03f)
+            {
+                // A big soft flake drifting by close to you, out of focus: depth, and it never lands.
+                p.Shape = 254;
+                p.R *= 2.6f;
+                p.VY *= 1.5f;
+                p.Sway *= 1.6f;
+                p.Alpha = FlakeAlpha * 0.45f;
+                p.Vol = 0;
+            }
             float drift = Wind * (ScreenH / p.VY) * 0.5f;
             p.X = R(-60f, ScreenW + 60f) - drift;
             p.Y = -R(4f, 30f);
@@ -971,7 +981,7 @@ internal sealed partial class SnowSim
             // Things falling from the sky mostly pass in front of a window's top edge; things that
             // came off a pile (or were thrown) are at window depth and always hit it.
             bool sky = p.Kind is PKind.Flake or PKind.Rain or PKind.Seed || (p.Kind is PKind.Petal or PKind.Leaf && !p.FromPile);
-            bool settles = p.Kind is PKind.Flake or PKind.Petal or PKind.Leaf or PKind.Rain || p.Kind == PKind.Seed && p.Shape == 0 || p.Vol > 0;
+            bool settles = p.Kind == PKind.Flake && p.Shape != 254 || p.Kind is PKind.Petal or PKind.Leaf or PKind.Rain || p.Kind == PKind.Seed && p.Shape == 0 || p.Vol > 0;
             // Blown spray (Vol 0) is only for show and never settles; chunks can't land the instant
             // they're released (or they'd sit there looking like a stuck ball).
             if (p.Y > y0 && settles && (sky || p.NoLand <= 0) && TryLand(p.X, y0, p.Y, sky, out var hit))
@@ -1010,7 +1020,7 @@ internal sealed partial class SnowSim
                         {
                             PKind.Leaf => R(16f, 34f) * (Count > 6000 ? 0.4f : 1f),
                             PKind.Petal => R(5f, 11f),
-                            _ => p.Shape is > 0 and < 255 ? R(0.9f, 1.6f) : R(0.45f, 1.0f),
+                            _ => p.Shape is > 0 and < 254 ? R(0.9f, 1.6f) : R(0.45f, 1.0f),
                         };
                         p.Surf = hit.IsGround ? IntPtr.Zero : hit.Hwnd;
                         p.RelX = p.X - hit.Left;

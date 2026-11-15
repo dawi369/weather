@@ -506,7 +506,7 @@ internal sealed partial class SnowSim
     public void StartVehicle(bool blower)
     {
         if (Vehicle != null || !GroundOn || Ground.Cells == 0) return;
-        var img = Sprites.Vehicle(blower, 0, UiScale);
+        var img = Sprites.Vehicle(blower, 0, UiScale * 1.4f); // drawn a bit bigger than the UI, so it's an event
         int dir = R() < 0.5f ? 1 : -1;
         Vehicle = new Vehicle
         {
@@ -668,7 +668,7 @@ internal sealed partial class SnowSim
 
     void AddFirefly(float x, float y, float life)
     {
-        if (Critters.Count(c => c.Firefly) >= 40) return;
+        if (Critters.Count(c => c.Firefly) >= 70) return;
         Critters.Add(new Critter
         {
             Firefly = true, X = x, Y = y, Phase = R(0f, 100f), Life = life, GlowTimer = R(0f, 2f),
@@ -802,7 +802,7 @@ internal sealed partial class SnowSim
 
         // Blink: a slow swell of light, then dark for a few seconds.
         f.GlowTimer -= dt;
-        if (f.GlowTimer <= -1.3f) f.GlowTimer = R(0.6f, 2.6f);
+        if (f.GlowTimer <= -1.3f) f.GlowTimer = R(0.3f, 1.5f);
         f.Glow = f.GlowTimer < 0 ? MathF.Sin(-f.GlowTimer / 1.3f * MathF.PI) : 0f;
         if (f.State == 2)
         {
@@ -984,9 +984,9 @@ internal sealed partial class SnowSim
         {
             int have = 0;
             foreach (var c in Critters) if (c.Firefly && c.State != 2) have++;
-            int want = (int)(34 * MathF.Min(1.5f, Amount));
+            int want = (int)(46 * MathF.Min(1.5f, Amount));
             if (have < want && R() < dt * 6f)
-                AddFirefly(R(0f, ScreenW), Ground.AnchorY - R(40f, ScreenH * 0.45f), R(240f, 600f));
+                AddFirefly(R(0f, ScreenW), Ground.AnchorY - R(40f, ScreenH * 0.8f), R(240f, 600f));
         }
 
         _devilTimer -= dt;

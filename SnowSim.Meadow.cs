@@ -52,7 +52,7 @@ internal sealed partial class SnowSim
                     AddSeed(hx + R(-4f, 4f) * s, hy + R(-4f, 4f) * s, away * R(40f, 200f) + Wind, -R(30f, 140f), R(0.75f, 1f));
                 regrow = ClockRegrow * R(0.8f, 1.2f);
             }
-            else if (R() < dt * 0.03f)
+            else if (!Night && R() < dt * 0.03f)
                 AddSeed(hx, hy, Wind + R(-20f, 20f), -R(10f, 40f), R(0.75f, 1f)); // the breeze takes one
         }
     }

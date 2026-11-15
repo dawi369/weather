@@ -303,7 +303,7 @@ internal sealed partial class SnowSim
             float d = R();
             d = 0.12f + 0.88f * d * d;
             p.Depth = d;
-            p.R = (0.6f + 0.7f * d) * FlakeScale;
+            p.R = (0.85f + 0.9f * d) * FlakeScale;
             p.Shape = RandomLeaf();
             p.Vol = 22f * FlakeDeposit * p.R;
             p.Alpha = (0.72f + 0.28f * d) * MathF.Min(1f, FlakeAlpha * 1.4f);
