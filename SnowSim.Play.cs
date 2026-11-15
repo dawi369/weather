@@ -830,7 +830,7 @@ internal sealed partial class SnowSim
             f.TX = Math.Clamp(f.X + R(-160f, 160f), 0f, ScreenW);
             f.TY = Math.Clamp(f.Y + R(-90f, 90f), ScreenH * 0.2f, Ground.AnchorY - 40f);
             // Now and then one drifts up to hover along a window's top edge.
-            if (Z.Count > 0 && R() < 0.3f)
+            if (Z.Count > 0 && R() < 0.5f)
             {
                 var s = Z[_rng.Next(Z.Count)];
                 if (!s.Clamped && s.Right > 0 && s.Left < ScreenW && s.AnchorY > 80)

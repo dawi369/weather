@@ -1588,6 +1588,8 @@ internal sealed partial class SnowSim
         if (brk <= 0) brk = R(0.5f, 1f);
         bool jolt = MathF.Abs(s.AX) > ShakeAccel * 0.5f || s.AY > FlingAccel * 0.5f;
         if (over < cap * brk && !jolt && hEdge >= 1f) return;
+        // Petals and leaves come off one at a time: wait until there is at least a whole one.
+        if (Material != Material.Snow && !jolt && over < (Material == Material.Leaves ? 24f : 10f)) return;
 
         // It breaks: the cornice comes away as one slab, crumbling a little as it goes.
         float side = left ? -1f : 1f;

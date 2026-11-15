@@ -679,14 +679,14 @@ internal static unsafe partial class Renderer
                     float u = (R - MathF.Sqrt(dx * dx + dy2)) / B; // 0 outer edge (red) .. 1 inner (violet)
                     if (u <= 0f || u >= 1f) continue;
                     if (Covered(x, y)) continue;
-                    float edge = MathF.Min(1f, MathF.Min(u, 1f - u) / 0.3f); // soft, glowing edges
+                    float edge = MathF.Min(1f, MathF.Min(u, 1f - u) / 0.07f); // soft edges, but the red and violet bands stay strong
                     float fi = u * 5f;
                     int i0 = Math.Min((int)fi, 4);
                     float f = fi - i0;
                     float r = Spectrum[i0, 0] + (Spectrum[i0 + 1, 0] - Spectrum[i0, 0]) * f;
                     float g = Spectrum[i0, 1] + (Spectrum[i0 + 1, 1] - Spectrum[i0, 1]) * f;
                     float b = Spectrum[i0, 2] + (Spectrum[i0 + 1, 2] - Spectrum[i0, 2]) * f;
-                    Blend(row + x, r, g, b, alpha * edge * edge);
+                    Blend(row + x, r, g, b, alpha * edge);
                 }
             }
         }
@@ -725,20 +725,20 @@ internal static unsafe partial class Renderer
         if (s.Cells == 0 || s.Clamped || s.IsGround) return;
         float sc = MathF.Max(1f, _scale * 0.7f);
         // At night the grass catches a little moonlight: dimmer and bluer, not black.
-        float night = sim.Night ? 0.62f : 1f, moon = sim.Night ? 40f : 0f;
-        int step = Math.Max(4, (int)(13f * sc));
+        float night = sim.Night ? 0.7f : 1f, moon = sim.Night ? 70f : 0f;
+        int step = Math.Max(4, (int)(8f * sc));
         int width = s.Right - s.Left;
         float baseY = s.AnchorY;
-        Mark(s.Left, baseY - 24f * sc, s.Right, baseY + 1);
+        Mark(s.Left - 8, baseY - 32f * sc, s.Right + 8, baseY + 1);
         for (int xr = step / 2; xr < width - step / 2; xr += step)
         {
             float hA = Hash01(xr, s.Seed + 501);
-            if (hA < 0.45f) continue; // gaps between the tufts
+            if (hA < 0.22f) continue; // gaps between the tufts
             float x = s.Left + xr + (Hash01(xr, s.Seed + 502) - 0.5f) * step * 0.6f;
             if (x < 0 || x >= w) continue;
             int col = Math.Clamp((int)((x - s.Left) / SnowSim.Cell), 0, s.Cells - 1);
             if (s.Vis[col] == 0) continue;
-            int blades = 3 + (int)(Hash01(xr, s.Seed + 503) * 3f);
+            int blades = 3 + (int)(Hash01(xr, s.Seed + 503) * 4f);
             float sway = (sim.Wind * 0.03f + MathF.Sin(_time * 1.8f + x * 0.03f) * 0.8f) * sc;
             for (int b = 0; b < blades; b++)
             {
@@ -749,11 +749,12 @@ internal static unsafe partial class Renderer
                 Blade(px, w, h, bx, baseY, bh, lean, 1.4f * sc, 66 * v * night, 122 * v * night, 46 * v * night + moon, 168 * v * night, 210 * v * night, 92 * v * night + moon);
             }
             float fl = Hash01(xr, s.Seed + 506);
-            if (fl > 0.8f)
+            if (fl > 0.72f)
             {
-                float fh = 13f * sc;
+                float fh = (12f + 8f * Hash01(xr, s.Seed + 507)) * sc;
                 Blade(px, w, h, x, baseY, fh, sway * 1.4f, 0.8f * sc, 50 * night, 100 * night, 40 * night, 80 * night, 140 * night, 60 * night);
-                Bloom(px, w, h, x + sway * 1.4f, baseY - fh, fl > 0.93f ? 2 : 3, true, sc * 1.15f);
+                Bloom(px, w, h, x + sway * 1.4f, baseY - fh, (int)(Hash01(xr, s.Seed + 508) * 3.999f), true, sc * 1.8f);
+                if (sim.Night) Glow(px, w, h, x + sway * 1.4f, baseY - fh, 4f * sc, 0.25f, 210, 225, 255); // pale in the moonlight
             }
         }
     }
@@ -766,7 +767,7 @@ internal static unsafe partial class Renderer
         foreach (var b in sim.Bees)
         {
             var img = Sprites.Bee(((int)(b.Age * 40f)) & 1);
-            float k = 1.4f, e = img.W * k;
+            float k = 2.1f, e = img.W * k;
             int cover = Coverage(b.X - e, b.Y - e, b.X + e, b.Y + e);
             if (cover == 2) continue;
             _clip = cover == 1;

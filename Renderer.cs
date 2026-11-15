@@ -138,7 +138,8 @@ internal static unsafe partial class Renderer
                 {
                     // A sunlit pollen mote: a tiny warm twinkle.
                     float tw = 0.5f + 0.5f * MathF.Sin(p.Age * 3f + p.Phase);
-                    Glow(px, w, h, p.X, py, 7f * _scale, 0.6f * a * tw, 255, 222, 140);
+                    Glow(px, w, h, p.X, py, 7f * _scale, 0.55f * a * tw, 255, 214, 120);
+                    Disc(px, w, h, p.X, py, 0.9f * _scale, 0.9f * a * tw, 255, 246, 210, soft: true); // a warm bright core
                     Disc(px, w, h, p.X, py, 0.7f * _scale, 0.8f * a * tw, 255, 240, 200, soft: true);
                     break;
                 }
