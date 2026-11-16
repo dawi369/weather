@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>
 /// A full-screen, click-through, always-on-top layered window. Pixels are drawn into a

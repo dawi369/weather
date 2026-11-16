@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>
 /// Dirty tracking for the full-screen overlay. Everything drawn marks the 64×64 tiles it touches;

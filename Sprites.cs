@@ -1,7 +1,7 @@
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>A small pre-rendered image in premultiplied BGRA (same format as the overlay).</summary>
 internal sealed class Sprite

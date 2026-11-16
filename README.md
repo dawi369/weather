@@ -38,12 +38,12 @@ Hold **Ctrl + Alt** and use the mouse (normal clicks are never touched):
 
 ## Download
 
-**[⬇ Download Windowsill.exe](https://github.com/dawi369/weather/releases/latest/download/Windowsill.exe)** (Windows 10/11, 64-bit)
+**[⬇ Download Windowsill.exe](https://github.com/dawi369/windowsill/releases/latest/download/Windowsill.exe)** (Windows 10/11, 64-bit)
 
 Just run it, nothing to install. It shows up in the system tray; click it for settings.
 Windows may say the app is from an unknown publisher: click **More info** → **Run anyway**.
 
-A fresh exe is built on every push to `main` (see [Releases](https://github.com/dawi369/weather/releases)).
+A fresh exe is built on every push to `main` (see [Releases](https://github.com/dawi369/windowsill/releases)).
 The app checks for a newer build once a day and asks before updating itself.
 Earlier versions (called WeatherSnow) update to Windowsill by themselves and keep their settings.
 

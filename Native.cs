@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>Win32 interop used by the overlay, window tracker and engine.</summary>
 internal static class Native

@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 internal enum VisitorKind : byte { Robin, Ladybird }
 
@@ -66,7 +66,7 @@ internal sealed partial class SnowSim
         {
             bool ground = v.Kind == VisitorKind.Robin && GroundOn && R() < 0.3f;
             Surface? s = ground ? Ground : Z.Count > 0 ? Z[_rng.Next(Z.Count)] : null;
-            if (s == null || s.Clamped || s.Cells < 20 || s.AnchorY < 60) continue;
+            if (s == null || s.Clamped || s.NoSnow || s.Cells < 20 || s.AnchorY < 60) continue;
             int i = _rng.Next(6, s.Cells - 6);
             float x = s.Left + (i + 0.5f) * Cell;
             if (x < 20 || x > ScreenW - 20 || s.Vis[i] == 0 || s.Shield[i] != 0) continue;

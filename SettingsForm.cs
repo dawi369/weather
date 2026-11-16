@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>What the settings window can ask of the running app.</summary>
 internal interface IAppHost
@@ -13,7 +13,7 @@ internal interface IAppHost
 
 /// <summary>
 /// The settings window: a sidebar (General, the four seasons, About) and a page of cards. Every
-/// change applies to the running weather at once and is saved a moment later.
+/// change applies at once and is saved a moment later.
 /// </summary>
 internal sealed class SettingsForm : Form
 {
@@ -68,10 +68,10 @@ internal sealed class SettingsForm : Form
             y += S(44);
         }
 
-        var pause = new PillButton(_s.Paused ? "Resume the weather" : "Pause the weather") { Accent = PageAccent(0) };
+        var pause = new PillButton(_s.Paused ? "Resume" : "Pause") { Accent = PageAccent(0) };
         pause.Bounds = new Rectangle(S(20), 0, _side.Width - S(40), S(36));
         pause.Anchor = AnchorStyles.Left | AnchorStyles.Bottom | AnchorStyles.Right;
-        pause.Click += (_, _) => { _s.Paused = !_s.Paused; pause.Text = _s.Paused ? "Resume the weather" : "Pause the weather"; };
+        pause.Click += (_, _) => { _s.Paused = !_s.Paused; pause.Text = _s.Paused ? "Resume" : "Pause"; };
         _side.Controls.Add(pause);
         _side.Resize += (_, _) => pause.Top = _side.Height - S(62);
         pause.Top = ClientSize.Height - S(62);
@@ -188,6 +188,20 @@ internal sealed class SettingsForm : Form
         return new Row(title, detail, s, 280);
     }
 
+    /// <summary>A row with a one-line text box; the value is applied when the box loses focus or Enter is pressed.</summary>
+    Row TextRow(string title, string detail, Func<string> get, Action<string> set)
+    {
+        var box = new TextBox
+        {
+            Text = get(), BorderStyle = BorderStyle.FixedSingle, BackColor = Color.FromArgb(24, 26, 33), ForeColor = Theme.Text,
+            Font = Theme.Font(10f),
+        };
+        void Apply() { set(box.Text); box.Text = get(); Changed(); }
+        box.Leave += (_, _) => Apply();
+        box.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Apply(); } };
+        return new Row(title, detail, box, 260);
+    }
+
     Row Button(string title, string detail, string text, Action click, bool primary = false)
     {
         var b = new PillButton(text, primary);
@@ -231,7 +245,7 @@ internal sealed class SettingsForm : Form
             new Caption("Season"),
             Card(seasonRow,
                  Toggle("Southern hemisphere", "Flip the calendar: winter in June, summer at Christmas.", () => _s.SouthernHemisphere, v => _s.SouthernHemisphere = v)),
-            new Caption("Weather"),
+            new Caption("Wind and look"),
             Card(Slide("Wind", "Which way it blows, and how hard.", -150, 150, () => _s.Wind, v => _s.Wind = v,
                        v => v == 0 ? "calm" : v < 0 ? $"{-v} left" : $"{v} right"),
                  Slide("Gusts", "How much the wind comes and goes.", 0, 100, () => _s.Gusts, v => _s.Gusts = v, Pct),
@@ -253,7 +267,11 @@ internal sealed class SettingsForm : Form
             Card(Toggle("When windows fill the screen", "A maximized window, or apps snapped side by side.", () => _s.HideWhenMaximized, v => _s.HideWhenMaximized = v),
                  Toggle("In full-screen apps and games", "Games, videos and presentations.", () => _s.HideInFullscreen, v => _s.HideInFullscreen = v),
                  Toggle("Battery saver", "On battery, run at 30 frames a second with a little less falling.", () => _s.BatterySaver, v => _s.BatterySaver = v),
-                 Toggle("Start with Windows", "Begin the weather when you sign in.", () => _host.StartsWithWindows, v => _host.StartsWithWindows = v)),
+                 Toggle("Start with Windows", "Start Windowsill when you sign in.", () => _host.StartsWithWindows, v => _host.StartsWithWindows = v)),
+            new Caption("Ignored apps"),
+            Card(TextRow("Leave these apps alone", "Nothing settles on their windows, and everything stays behind them. Program names, separated by commas (for pop-ups such as dictation or screen-capture overlays).",
+                         () => string.Join(", ", _s.IgnoredApps),
+                         v => _s.IgnoredApps = v.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToList())),
         };
     }
 

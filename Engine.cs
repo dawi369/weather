@@ -1,6 +1,6 @@
 ﻿using System.Diagnostics;
 
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>
 /// Runs simulation + rendering on its own thread, once per display refresh.
@@ -28,7 +28,7 @@ internal sealed unsafe class Engine
         _ground = ground;
         _taskbar = taskbar;
         _settings = settings;
-        _tracker = new WindowTracker(overlay.Handle, ground.Handle);
+        _tracker = new WindowTracker(overlay.Handle, ground.Handle, () => _settings.IgnoredApps);
     }
 
     public void Start()
@@ -62,8 +62,8 @@ internal sealed unsafe class Engine
     /// <summary>The simulation (for queuing play input and tray actions; those are thread-safe).</summary>
     public SnowSim Sim => _sim;
 
-    // Set WEATHER_STATS=<file> to log frame timings (for tuning).
-    readonly string? _stats = Environment.GetEnvironmentVariable("WEATHER_STATS");
+    // Set WINDOWSILL_STATS=<file> to log frame timings (for tuning).
+    readonly string? _stats = Environment.GetEnvironmentVariable("WINDOWSILL_STATS");
     int _frames, _late;
     double _statStart, _sumWork, _maxWork, _sumLead;
     readonly double[] _ph = new double[4]; // time per phase: sim, draw, ground, present
@@ -154,8 +154,8 @@ internal sealed unsafe class Engine
         Trace("hook", g);
     }
 
-    // Set WEATHER_TRACE=<file> to log every taskbar-snow position change with a QPC timestamp.
-    readonly string? _trace = Environment.GetEnvironmentVariable("WEATHER_TRACE");
+    // Set WINDOWSILL_TRACE=<file> to log every taskbar-snow position change with a QPC timestamp.
+    readonly string? _trace = Environment.GetEnvironmentVariable("WINDOWSILL_TRACE");
     int _lastTraced = int.MinValue;
     void Trace(string src, int g)
     {
@@ -166,10 +166,10 @@ internal sealed unsafe class Engine
 
     string? _lastDiag;
 
-    // Set WEATHER_DEMO=1 to have the season's extras happen on a fixed schedule (for screenshots and
+    // Set WINDOWSILL_DEMO=1 to have the season's extras happen on a fixed schedule (for screenshots and
     // tests): critters, the season's tray action, snowmen and a thrown snowball on the window at
     // (560..1320, top 110), then the action again.
-    readonly string? _demo = Environment.GetEnvironmentVariable("WEATHER_DEMO");
+    readonly string? _demo = Environment.GetEnvironmentVariable("WINDOWSILL_DEMO");
     int _demoStep;
     double _demoStart = -1;
 
@@ -178,6 +178,13 @@ internal sealed unsafe class Engine
         if (_demoStart < 0) _demoStart = now;
         double t = now - _demoStart;
         var s = _sim;
+        if (_demo == "cycle")
+        {
+            // Tests: switch season every 6 seconds (to watch the change-over).
+            int step = (int)(t / 6.0);
+            if (step != _demoStep) { _demoStep = step; _settings.Season = (SeasonChoice)(1 + step % 4); }
+            return;
+        }
         SeasonAction act = s.Season switch { Season.Spring => SeasonAction.Shower, Season.Autumn => SeasonAction.Gust, _ => SeasonAction.Plow };
         switch (_demoStep)
         {
@@ -205,8 +212,8 @@ internal sealed unsafe class Engine
         }
     }
 
-    // Set WEATHER_DUMP=<file> to write the pile state every 2s (debugging the physics).
-    readonly string? _dump = Environment.GetEnvironmentVariable("WEATHER_DUMP");
+    // Set WINDOWSILL_DUMP=<file> to write the pile state every 2s (debugging the physics).
+    readonly string? _dump = Environment.GetEnvironmentVariable("WINDOWSILL_DUMP");
     double _lastDump;
 
     /// <summary>

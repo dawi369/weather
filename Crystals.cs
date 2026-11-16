@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>
 /// Pre-rendered snowflake crystals: six-armed dendrites (the classic "stellar dendrite" shape),

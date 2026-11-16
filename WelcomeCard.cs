@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>
 /// First run: a small card above the tray saying hello, where the app lives and how to play.

@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 internal enum Season { Winter, Spring, Summer, Autumn }
 

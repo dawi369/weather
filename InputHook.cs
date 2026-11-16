@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>
-/// Lets you play with the weather: while Ctrl+Alt are held, mouse clicks and drags go to the
+/// Lets you play with the seasons: while Ctrl+Alt are held, mouse clicks and drags go to the
 /// simulation instead of the window under the mouse (a low-level mouse hook). Without Ctrl+Alt
 /// nothing is touched, and plain mouse moves always pass straight through.
 /// </summary>

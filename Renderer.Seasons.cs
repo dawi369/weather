@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>
 /// Drawing for the other seasons and the extras: leaf and petal piles, sprites, rain, the taskbar
@@ -500,7 +500,7 @@ internal static unsafe partial class Renderer
                 if ((uint)ix >= (uint)w) continue;
                 float cov = MathF.Min(ix + 1, r) - MathF.Max(ix, l);
                 if (cov <= 0) continue;
-                Blend(px + y * w + ix, cr, cg, cb, MathF.Min(1f, cov) * 0.95f * fade);
+                Blend(px + y * w + ix, cr, cg, cb, MathF.Min(1f, cov) * 0.95f * fade * _seasonFade);
             }
         }
     }
@@ -628,7 +628,7 @@ internal static unsafe partial class Renderer
             Blade(px, w, h, c.X, baseY, c.Height, sway, 1.1f * s, 60 * night, 108 * night, 44 * night, 96 * night, 150 * night, 70 * night);
             float hx = c.X + sway, hy = baseY - c.Height;
             Disc(px, w, h, hx, hy, 1.3f * s, 0.95f, 150 * night, 140 * night, 90 * night, soft: true); // the seed head
-            float full = c.Full < 0.6f ? 0f : (c.Full - 0.6f) / 0.4f;
+            float full = (c.Full < 0.6f ? 0f : (c.Full - 0.6f) / 0.4f) * _seasonFade;
             if (full <= 0.01f) continue;
             float r = 5.2f * s * (0.5f + 0.5f * full);
             Glow(px, w, h, hx, hy, r * 1.25f, 0.42f * full * night, 255, 252, 240);
@@ -723,7 +723,7 @@ internal static unsafe partial class Renderer
     /// </summary>
     static void DrawSill(uint* px, int w, int h, SnowSim sim, Surface s)
     {
-        if (s.Cells == 0 || s.Clamped || s.IsGround) return;
+        if (s.Cells == 0 || s.Clamped || s.IsGround || s.NoSnow) return;
         float sc = MathF.Max(1f, _scale * 0.7f);
         // At night the grass catches a little moonlight: dimmer and bluer, not black.
         float night = sim.Night ? 0.7f : 1f, moon = sim.Night ? 70f : 0f;
@@ -787,6 +787,9 @@ internal static unsafe partial class Renderer
     /// <summary>1 at night: flowers drawn now are seen by moonlight (paler, bluer, less saturated).</summary>
     static float _bloomMoon;
 
+    /// <summary>Fades season-bound scenery (meadow, windowsill garden) while the season changes over.</summary>
+    static float _seasonFade = 1f;
+
     static void MoonDisc(uint* px, int w, int h, float cx, float cy, float r, float alpha, float cr, float cg, float cb, bool soft)
     {
         if (_bloomMoon > 0)
@@ -796,6 +799,6 @@ internal static unsafe partial class Renderer
             cg = (cg + (mg - cg) * 0.55f) * 0.82f;
             cb = (cb + (mb - cb) * 0.55f) * 0.9f;
         }
-        Disc(px, w, h, cx, cy, r, alpha, cr, cg, cb, soft);
+        Disc(px, w, h, cx, cy, r, alpha * _seasonFade, cr, cg, cb, soft);
     }
 }

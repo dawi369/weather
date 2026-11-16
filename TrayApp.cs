@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>The tray icon and its menu. Owns the overlay, the engine and the mouse hook.</summary>
 internal sealed class TrayApp : ApplicationContext, IAppHost
@@ -49,8 +49,8 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
         _seasonTimer.Tick += (_, _) => UpdateTrayIcon();
         _seasonTimer.Start();
 
-        // Tests: WEATHER_SHOWMENU=1 pops the tray menu up by itself (for screenshots).
-        if (Environment.GetEnvironmentVariable("WEATHER_SHOWMENU") == "1")
+        // Tests: WINDOWSILL_SHOWMENU=1 pops the tray menu up by itself (for screenshots).
+        if (Environment.GetEnvironmentVariable("WINDOWSILL_SHOWMENU") == "1")
         {
             var t = new System.Windows.Forms.Timer { Interval = 2500 };
             t.Tick += (_, _) =>
@@ -172,7 +172,7 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
         _menu.Items.Add(choose);
         _menu.Items.Add(new ToolStripSeparator());
 
-        _menu.Items.Add(new ToolStripMenuItem(_settings.Paused ? "Resume the weather" : "Pause", null, (_, _) => { _settings.Paused = !_settings.Paused; _lockPaused = false; UpdateTrayIcon(); }) { Padding = pad });
+        _menu.Items.Add(new ToolStripMenuItem(_settings.Paused ? "Resume" : "Pause", null, (_, _) => { _settings.Paused = !_settings.Paused; _lockPaused = false; UpdateTrayIcon(); }) { Padding = pad });
         _menu.Items.Add(new ToolStripMenuItem($"Clear the {SeasonInfo.Stuff(season)}", null, (_, _) => ClearNow()) { Padding = pad });
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Quit", null, (_, _) => Exit()) { Padding = pad });
@@ -264,7 +264,7 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
         string file = Path.Combine(Settings.Folder, "diagnostics.txt");
         if (!File.Exists(file))
         {
-            Ask("No diagnostics yet: give it a second after the weather starts.", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Ask("No diagnostics yet: give it a second after Windowsill starts.", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(file) { UseShellExecute = true }); }

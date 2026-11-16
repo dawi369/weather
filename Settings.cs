@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>
 /// Everything the user can tune. Edited live from the settings window (UI thread) and read every
@@ -46,6 +46,12 @@ internal sealed class Settings
     public bool Fireflies { get; set; } = true;        // summer nights
     public bool DustDevils { get; set; } = true;       // autumn
     public bool Visitors { get; set; } = true;         // robins on the ledges, ladybirds on the windows
+
+    /// <summary>
+    /// Apps (process names) whose windows nothing settles on: everything still stays behind them.
+    /// For pop-ups like a dictation or screen-capture overlay. Replaced as a whole when edited.
+    /// </summary>
+    public List<string> IgnoredApps { get; set; } = new() { "handy" };
 
     // Performance
     public bool BatterySaver { get; set; } = true;     // on battery: 30 fps, less falling

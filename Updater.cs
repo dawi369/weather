@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>
 /// Self-update from the repo's "Latest build" GitHub release. Builds made by the GitHub workflow are
@@ -13,7 +13,7 @@ namespace Weather;
 /// </summary>
 internal static class Updater
 {
-    const string Repo = "dawi369/weather";
+    const string Repo = "dawi369/windowsill";
     const string ReleaseTag = "latest";
     const string AssetName = "Windowsill.exe";
 

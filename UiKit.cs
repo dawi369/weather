@@ -2,7 +2,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 using System.Runtime.InteropServices;
 
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>Colours, fonts and window chrome for the app's dark UI.</summary>
 internal static class Theme

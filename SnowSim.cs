@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>
 /// What a particle is. Flake/Clump/Powder are snow; Petal, Leaf and Seed are the other seasons' fall;
@@ -12,6 +12,7 @@ internal struct Particle
     public float Rot, RotSpeed;  // crystals: orientation and spin
     public float Life, Fade;     // landed flakes: time left / total, while they rest on the snow and fade out
     public float Fall;           // petals, leaves, seeds: the speed they settle at in still air
+    public float Vanish;         // > 0: fading out (the season changed); seconds left
     public float RelX;           // landed flakes: x relative to the surface they rest on
     public IntPtr Surf;          // landed flakes: that surface's window (Zero = the taskbar snow)
     public float NoLand;         // chunks: seconds before they may land (no instant re-landing)
@@ -30,6 +31,7 @@ internal sealed class Surface
 {
     public IntPtr Hwnd;
     public bool IsGround, Clamped, Zoomed, HasPrev, Seen;
+    public bool NoSnow; // hides what is behind it, but nothing settles here (see WinInfo.NoSnow)
     public int Left, Top, Right, Bottom;
 
     /// <summary>Y the pile sits on. For windows touching the top of the screen ("clamped") the pile hangs down from y=0 instead.</summary>
@@ -201,7 +203,7 @@ internal sealed partial class SnowSim
     /// <summary>Total snow (px²) on the taskbar (stats).</summary>
     public float GroundVolume() { float v = 0; for (int i = 0; i < Ground.Cells; i++) v += Ground.H[i]; return v * Cell; }
 
-    /// <summary>Debug: one line per surface with its joins and tallest column (for WEATHER_DUMP).</summary>
+    /// <summary>Debug: one line per surface with its joins and tallest column (for WINDOWSILL_DUMP).</summary>
     public string DebugDump()
     {
         var sb = new System.Text.StringBuilder();
@@ -303,6 +305,8 @@ internal sealed partial class SnowSim
             }
             else Track(s, w, dt);
             s.Seen = true;
+            s.NoSnow = w.NoSnow;
+            if (s.NoSnow && s.Cells > 0) { Array.Clear(s.H); s.OverL = s.OverR = 0; }
             Z.Add(s);
         }
 
@@ -862,6 +866,11 @@ internal sealed partial class SnowSim
         {
             ref var p = ref Particles[n];
             float y0 = p.Y;
+            if (p.Vanish > 0)
+            {
+                p.Vanish -= dt;
+                if (p.Vanish <= 0) { Particles[n] = Particles[--Count]; continue; }
+            }
 
             // A flake, petal or leaf that has landed rests on the pile (riding along if its window
             // moves) and fades out. Seeds rest a moment and then lift off again.
@@ -875,7 +884,7 @@ internal sealed partial class SnowSim
                 if (on.Vis[ci] == 0 || on.Clamped) { Particles[n] = Particles[--Count]; continue; }
                 bool litter = p.Kind is PKind.Leaf or PKind.Petal;
                 // The pile under a resting leaf was knocked off, or the window jerked: off it goes too.
-                bool knocked = litter && (on.H[ci] < 0.25f && p.Life < p.Fade - 0.5f
+                bool knocked = litter && !on.IsGround && (on.H[ci] < 0.25f && p.Life < p.Fade - 0.5f
                                           || MathF.Abs(on.AY) > FlingAccel * 0.6f || MathF.Abs(on.AX) > ShakeAccel);
                 if (p.Life <= 0 || knocked)
                 {
@@ -893,7 +902,8 @@ internal sealed partial class SnowSim
                     Particles[n] = Particles[--Count];
                     continue;
                 }
-                p.Y = on.PileTop(ci) - (litter ? 1.2f : p.Kind == PKind.Seed ? 0f : p.R * 0.25f);
+                // Leaves and petals lie on top of the pile, not sunk into it.
+                p.Y = on.PileTop(ci) - (litter ? (p.Kind == PKind.Leaf ? 4.2f : 2.6f) * Sprites.Scale * MathF.Max(p.R, 0.8f) : p.Kind == PKind.Seed ? 0f : p.R * 0.25f);
                 n++;
                 continue;
             }
@@ -984,7 +994,9 @@ internal sealed partial class SnowSim
             bool settles = p.Kind == PKind.Flake && p.Shape != 254 || p.Kind is PKind.Petal or PKind.Leaf or PKind.Rain || p.Kind == PKind.Seed && p.Shape == 0 || p.Vol > 0;
             // Blown spray (Vol 0) is only for show and never settles; chunks can't land the instant
             // they're released (or they'd sit there looking like a stuck ball).
-            if (p.Y > y0 && settles && (sky || p.NoLand <= 0) && TryLand(p.X, y0, p.Y, sky, out var hit))
+            // Leaves and petals touch down when their underside meets the surface, not their middle.
+            float foot = p.Kind == PKind.Leaf ? 4.5f * Sprites.Scale * p.R : p.Kind == PKind.Petal ? 3f * Sprites.Scale * p.R : 0f;
+            if (p.Y > y0 && settles && (sky || p.NoLand <= 0) && TryLand(p.X, y0 + foot, p.Y + foot, sky, out var hit))
             {
                 if (p.Kind == PKind.Rain)
                 {
@@ -1052,7 +1064,7 @@ internal sealed partial class SnowSim
     {
         foreach (var s in Z)
         {
-            if (x < s.Left || x >= s.Right) continue;
+            if (s.NoSnow || x < s.Left || x >= s.Right) continue;
             int i = Math.Min((int)((x - s.Left) / Cell), s.Cells - 1);
             if (s.Vis[i] == 0 || s.Shield[i] != 0) continue; // hidden, or another window's body is in the way
             float top = s.PileTop(i);
@@ -1207,13 +1219,13 @@ internal sealed partial class SnowSim
         // a = the surface on the left of the join, b = the one on the right.
         foreach (var a in Z)
         {
-            if (a.Clamped || a.Cells < 4) continue;
+            if (a.Clamped || a.NoSnow || a.Cells < 4) continue;
             float bestGap = float.MaxValue;
             Surface? best = null;
             int bestEa = 0, bestEb = 0;
             foreach (var b in Z)
             {
-                if (b == a || b.Clamped || b.Cells < 4 || b.LinkL != null || b.LinkR == a || a.LinkL == b) continue; // no join loops
+                if (b == a || b.NoSnow || b.Clamped || b.Cells < 4 || b.LinkL != null || b.LinkR == a || a.LinkL == b) continue; // no join loops
                 if (MathF.Abs(a.AnchorY - b.AnchorY) > LinkMaxStep) continue;
                 // Where the two blankets could meet: the ends touching, b's left side standing in front
                 // of a's snow, or a's right side standing in front of b's snow.
@@ -1416,11 +1428,29 @@ internal sealed partial class SnowSim
         // How deep it can get varies along the window, so a full window is rolling mounds, not a slab.
         if (s.IsGround)
         {
-            for (int i = 0; i < n; i++)
+            // Snow above the cap slumps sideways onto its neighbours (sweeping both ways), so a
+            // heap (the plough's mound, say) spreads out instead of being shaved off. Only once
+            // the whole taskbar is full does anything have to go.
+            for (int pass = 0; pass < 2; pass++)
             {
-                float cap = MaxDepth * s.Cp[i];
-                if (h[i] > cap) h[i] = cap;
+                bool right = pass == 0;
+                for (int k = 0; k < n; k++)
+                {
+                    int i = right ? k : n - 1 - k;
+                    float cap = MaxDepth * s.Cp[i];
+                    if (h[i] <= cap) continue;
+                    float ex = h[i] - cap;
+                    h[i] = cap;
+                    int a = i - 1, b = i + 1;
+                    bool okA = a >= 0 && s.Block[a] == 0, okB = b < n && s.Block[b] == 0;
+                    if (okA && okB) { h[a] += ex * 0.5f; h[b] += ex * 0.5f; }
+                    else if (okA) h[a] += ex;
+                    else if (okB) h[b] += ex;
+                    else h[i] += ex; // walled in: it stays
+                }
             }
+            float full = MaxDepth * 1.6f;
+            for (int i = 0; i < n; i++) if (h[i] > full) h[i] = full;
         }
         else
         {

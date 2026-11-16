@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>
 /// The four seasons: which one is showing, how it changes over, and what falls from the sky in
@@ -11,10 +11,10 @@ internal sealed partial class SnowSim
 
     /// <summary>The season's intensity setting (1 = normal).</summary>
     float Amount = 1f;
-    bool _seasonInit, _melting;
+    bool _seasonInit;
     float _clockCheck;
-    // Tests: WEATHER_NIGHT=1 forces night, 0 forces day.
-    static readonly string? NightEnv = Environment.GetEnvironmentVariable("WEATHER_NIGHT");
+    // Tests: WINDOWSILL_NIGHT=1 forces night, 0 forces day.
+    static readonly string? NightEnv = Environment.GetEnvironmentVariable("WINDOWSILL_NIGHT");
 
     /// <summary>Daylight (butterflies, ladybirds and rainbows are about).</summary>
     public bool IsDay { get; private set; } = true;
@@ -33,7 +33,8 @@ internal sealed partial class SnowSim
     {
         var want = SeasonInfo.Resolve(st.Season, st.SouthernHemisphere);
         if (!_seasonInit) { _seasonInit = true; SetSeason(want); }
-        else if (want != Season) ChangeSeason(want);
+        else if (_pending is Season p && want == Season) _pending = null;         // changed back mid-way: carry on
+        else if (want != Season && _pending != want) ChangeSeason(want);
 
         Amount = Math.Clamp(Season switch
         {
@@ -80,21 +81,37 @@ internal sealed partial class SnowSim
     /// The season turned: what lies on the windows slides off (as the old material), the taskbar's
     /// pile melts away, snowmen melt and the critters fly off, and the new season starts falling.
     /// </summary>
+    /// <summary>The season being changed to while the old one clears away.</summary>
+    Season? _pending;
+    float _changeT;
+    const float ChangeTime = 1.1f;
+
+    /// <summary>1 normally; falls to 0 while the season changes over (for things drawn by season, like the meadow).</summary>
+    public float SeasonFade => _pending != null ? Math.Clamp(_changeT / ChangeTime, 0f, 1f) : 1f;
+
+    /// <summary>
+    /// The season turned: in about a second everything of the old one melts and fades away where it
+    /// is (piles sink, falling things fade out, snowmen melt, the critters leave), then the new
+    /// season starts falling.
+    /// </summary>
     void ChangeSeason(Season next)
     {
-        foreach (var s in _windows.Values)
+        _pending = next;
+        _changeT = ChangeTime;
+        for (int i = 0; i < Count; i++)
         {
-            if (s.Clamped) Array.Clear(s.H);
-            else Shed(s, 1f, 0f, -30f, 40f);
+            ref var p = ref Particles[i];
+            if (p.Vanish <= 0) p.Vanish = R(0.5f, ChangeTime);
         }
-        _melting = true;
         foreach (var sm in Snowmen) sm.Melting = true;
         foreach (var c in Critters) c.State = 2;
         foreach (var v in Visitors) FlyOff(v);
         Holding = false;
+        Vehicle = null;
+        Devil = null;
+        Splats.Clear();
         RainLevel = _rainTarget = 0;
         Rainbow = 0;
-        SetSeason(next);
     }
 
     /// <summary>Per-frame season housekeeping: the clock (night), a melting taskbar pile.</summary>
@@ -108,17 +125,27 @@ internal sealed partial class SnowSim
             Night = NightEnv == "1" || NightEnv != "0" && (hour >= 20 || hour < 5);
             IsDay = NightEnv == "0" || NightEnv != "1" && hour is >= 7 and < 20;
         }
-        if (_melting)
+        if (_pending is Season next)
         {
-            float k = MathF.Exp(-dt * 1.4f), max = 0;
-            for (int i = 0; i < Ground.Cells; i++) { Ground.H[i] *= k; max = MathF.Max(max, Ground.H[i]); }
-            if (max < 0.15f) { Array.Clear(Ground.H); _melting = false; }
+            // Everything settled sinks away together, quickly but smoothly.
+            _changeT -= dt;
+            float k = MathF.Exp(-dt * 4.5f);
+            foreach (var s in _windows.Values) { for (int i = 0; i < s.Cells; i++) s.H[i] *= k; s.OverL *= k; s.OverR *= k; s.SpillL = s.SpillR = 0; }
+            for (int i = 0; i < Ground.Cells; i++) Ground.H[i] *= k;
+            if (_changeT <= 0)
+            {
+                foreach (var s in _windows.Values) { Array.Clear(s.H); s.OverL = s.OverR = 0; }
+                Array.Clear(Ground.H);
+                _pending = null;
+                SetSeason(next);
+            }
         }
     }
 
     void Spawn(float dt)
     {
         UpdateSeason(dt);
+        if (_pending != null) return; // the old season is still clearing away
         switch (Season)
         {
             case Season.Winter: SpawnSnow(dt); break;
@@ -143,7 +170,7 @@ internal sealed partial class SnowSim
 
     void SpawnPetals(float dt)
     {
-        _spawnAcc += SpawnRate() * 0.13f * Amount * (1f - RainLevel * 0.6f) * dt;
+        _spawnAcc += SpawnRate() * 0.075f * Amount * (1f - RainLevel * 0.6f) * dt;
         while (_spawnAcc >= 1f)
         {
             _spawnAcc -= 1f;
@@ -154,7 +181,7 @@ internal sealed partial class SnowSim
             p.Depth = d;
             p.R = (0.55f + 0.8f * d) * FlakeScale;              // sprite scale
             p.Shape = (byte)_rng.Next(Sprites.PetalColors);
-            p.Vol = 9f * FlakeDeposit * p.R;
+            p.Vol = 15f * FlakeDeposit * p.R;
             p.Alpha = (0.75f + 0.25f * d) * MathF.Min(1f, FlakeAlpha * 1.35f);
             p.Fall = R(26f, 46f) * (0.6f + 0.5f * d);
             p.Sway = R(16f, 34f) * (0.5f + 0.6f * d);
@@ -294,7 +321,7 @@ internal sealed partial class SnowSim
 
     void SpawnLeaves(float dt)
     {
-        _spawnAcc += SpawnRate() * 0.085f * Amount * dt;
+        _spawnAcc += SpawnRate() * 0.05f * Amount * dt;
         while (_spawnAcc >= 1f)
         {
             _spawnAcc -= 1f;
@@ -305,7 +332,7 @@ internal sealed partial class SnowSim
             p.Depth = d;
             p.R = (0.85f + 0.9f * d) * FlakeScale;
             p.Shape = RandomLeaf();
-            p.Vol = 22f * FlakeDeposit * p.R;
+            p.Vol = 34f * FlakeDeposit * p.R; // fewer leaves fall, each a bit more of the pile
             p.Alpha = (0.72f + 0.28f * d) * MathF.Min(1f, FlakeAlpha * 1.4f);
             InitLeafMotion(ref p, d);
             p.VX = Wind;
@@ -406,7 +433,7 @@ internal sealed partial class SnowSim
     /// <summary>Seconds of rainbow left (it fades in and out).</summary>
     public float Rainbow;
     float _rainPeak;
-    bool _demoRainbow = Environment.GetEnvironmentVariable("WEATHER_RAINBOW") == "1"; // tests: show one straight away
+    bool _demoRainbow = Environment.GetEnvironmentVariable("WINDOWSILL_RAINBOW") == "1"; // tests: show one straight away
 
     /// <summary>A ring spreading on the wet taskbar where a raindrop landed.</summary>
     /// <param name="on">The window whose ledge it is on (Zero: the taskbar), which decides the layer it is drawn in.</param>

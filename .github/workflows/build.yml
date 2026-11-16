@@ -34,7 +34,7 @@ jobs:
       # One self-contained exe: runs on any Windows 10/11 x64 PC without installing .NET.
       - name: Publish
         run: >
-          dotnet publish Weather.csproj -c Release -r win-x64
+          dotnet publish Windowsill.csproj -c Release -r win-x64
           --self-contained true
           -p:PublishSingleFile=true
           -p:EnableCompressionInSingleFile=true

@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>
 /// Knows where the top of the taskbar is, and reports the instant it moves: a WinEvent hook fires on

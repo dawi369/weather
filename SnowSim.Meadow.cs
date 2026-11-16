@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>A dandelion clock in the summer meadow: where it stands, how tall, and whether it has seeds.</summary>
 internal struct Clock
@@ -100,7 +100,7 @@ internal sealed partial class SnowSim
                 if (Z.Count > 0 && R() < 0.3f)
                 {
                     var w = Z[_rng.Next(Z.Count)];
-                    if (!w.Clamped && w.AnchorY > 60)
+                    if (!w.Clamped && !w.NoSnow && w.AnchorY > 60)
                     {
                         b.TX = Math.Clamp(R(w.Left + 10f, w.Right - 10f), 0f, ScreenW);
                         b.TY = w.AnchorY - R(5f, 14f) * s; // over the windowsill garden

@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>Software rasterizer into the overlay's premultiplied BGRA buffer.</summary>
 internal static unsafe partial class Renderer
@@ -8,6 +8,7 @@ internal static unsafe partial class Renderer
         BeginFrame(px, w, h);
 
         _time = sim.Time;
+        _seasonFade = sim.SeasonFade;
         _mat = sim.Material;
         _scale = sim.UiScale;
         for (int k = sim.Z.Count - 1; k >= 0; k--) DrawPile(px, w, h, sim.Z[k], 0);
@@ -23,6 +24,13 @@ internal static unsafe partial class Renderer
         {
             if (_occN == _occ.Length) Array.Resize(ref _occ, _occN * 2);
             _occ[_occN++] = (s.Left, s.Top, s.Right, s.Bottom);
+        }
+        // The taskbar: nothing on this full-screen layer is ever drawn below its top edge (things
+        // land on it and are drawn with the taskbar layer instead).
+        if (sim.Ground.Cells > 0 && sim.Ground.AnchorY < h)
+        {
+            if (_occN == _occ.Length) Array.Resize(ref _occ, _occN * 2);
+            _occ[_occN++] = (-10000, (int)sim.Ground.AnchorY, w + 10000, h + 10000);
         }
 
         DrawRainbow(px, w, h, sim);
@@ -56,6 +64,16 @@ internal static unsafe partial class Renderer
 
     /// <param name="yOff">Screen y of the buffer's first row.</param>
     static void DrawParticle(uint* px, int w, int h, ref Particle p, int yOff)
+    {
+        if (p.Vanish <= 0) { DrawParticleCore(px, w, h, ref p, yOff); return; }
+        // Fading out because the season changed.
+        float a = p.Alpha;
+        p.Alpha *= MathF.Min(1f, p.Vanish / 0.5f);
+        DrawParticleCore(px, w, h, ref p, yOff);
+        p.Alpha = a;
+    }
+
+    static void DrawParticleCore(uint* px, int w, int h, ref Particle p, int yOff)
     {
         float py = p.Y - yOff;
         // Landed things sit on the pile on top of a window, outside its body. Everything else (falling
@@ -275,6 +293,7 @@ internal static unsafe partial class Renderer
         new Span<uint>(px, w * h).Clear();
         if (!sim.GroundOn) return;
         _time = sim.Time;
+        _seasonFade = sim.SeasonFade;
         _mat = sim.Material;
         _scale = sim.UiScale;
         _clip = false;

@@ -14,7 +14,7 @@
     <Product>Windowsill</Product>
     <Description>Four seasons for your desktop</Description>
     <ApplicationIcon>Windowsill.ico</ApplicationIcon>
-    <RootNamespace>Weather</RootNamespace>
+    <RootNamespace>Windowsill</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <Optimize Condition="'$(Configuration)'=='Release'">true</Optimize>
   </PropertyGroup>

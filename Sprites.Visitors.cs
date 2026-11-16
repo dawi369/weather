@@ -1,6 +1,6 @@
 using System.Drawing.Drawing2D;
 
-namespace Weather;
+namespace Windowsill;
 
 internal static partial class Sprites
 {

@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>
 /// A separate click-through layered window holding only the snow that rests on the taskbar.

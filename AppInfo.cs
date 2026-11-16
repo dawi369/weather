@@ -1,7 +1,7 @@
 using System.Drawing.Imaging;
 using System.Reflection;
 
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>The app's name, version and icon.</summary>
 internal static class AppInfo

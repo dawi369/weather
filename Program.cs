@@ -1,4 +1,4 @@
-namespace Weather;
+namespace Windowsill;
 
 internal static class Program
 {

@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace Weather;
+namespace Windowsill;
 
 /// <summary>Mouse input while Ctrl+Alt are held (from <see cref="InputHook"/>), in screen pixels.</summary>
 internal enum PlayKind : byte { Down, Move, Up, Right }
@@ -239,7 +239,7 @@ internal sealed partial class SnowSim
     {
         foreach (var s in Z)
         {
-            if (x < s.Left || x >= s.Right || s.Clamped || s.Cells == 0) continue;
+            if (x < s.Left || x >= s.Right || s.Clamped || s.NoSnow || s.Cells == 0) continue;
             int i = s.Col(x);
             if (s.Vis[i] == 0) continue;
             if (y >= s.PileTop(i) - 30f && y <= s.AnchorY + 14f) { col = i; return s; }
@@ -690,7 +690,7 @@ internal sealed partial class SnowSim
             {
                 int pick = _rng.Next(choices);
                 Surface? s = pick < Z.Count ? Z[pick] : Ground;
-                if (!s.Clamped && s.Cells > 4 && s.Right > 0 && s.Left < ScreenW && s.AnchorY > 40)
+                if (!s.Clamped && !s.NoSnow && s.Cells > 4 && s.Right > 0 && s.Left < ScreenW && s.AnchorY > 40)
                 {
                     int i = _rng.Next(2, s.Cells - 2);
                     float x = s.Left + (i + 0.5f) * Cell;
@@ -833,7 +833,7 @@ internal sealed partial class SnowSim
             if (Z.Count > 0 && R() < 0.5f)
             {
                 var s = Z[_rng.Next(Z.Count)];
-                if (!s.Clamped && s.Right > 0 && s.Left < ScreenW && s.AnchorY > 80)
+                if (!s.Clamped && !s.NoSnow && s.Right > 0 && s.Left < ScreenW && s.AnchorY > 80)
                 {
                     f.TX = Math.Clamp(R(s.Left, s.Right), 0f, ScreenW);
                     f.TY = s.AnchorY - R(6f, 40f);
