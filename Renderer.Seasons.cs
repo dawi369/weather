@@ -657,41 +657,144 @@ internal static unsafe partial class Renderer
         float t = sim.Rainbow;
         if (t <= 0) return;
         float age = SnowSim.RainbowLife - t;
-        float alpha = MathF.Min(1f, age / 5f) * MathF.Min(1f, t / 8f) * 0.72f;
-        if (alpha <= 0.003f) return;
-        float cx = w * 0.58f, cy = h * 1.32f, R = h * 1.14f, B = h * 0.085f;
-        float rIn = R - B;
-        int top = Math.Max(0, (int)(cy - R));
-        Mark(0, top, w, h);
-        _clip = true;
-        for (int y = top; y < h; y++)
+        float A = MathF.Min(1f, t / 8f) * 0.62f; // fades out over its last seconds
+        if (A <= 0.003f) return;
+
+        // Geometry: the primary bow, a fainter secondary bow outside it (colours reversed), and the
+        // brighter sky just inside the primary.
+        float cx = w * 0.58f, cy = h * 1.32f, R = h * 1.14f, B = h * 0.08f;
+        float R2 = R * 1.26f, B2 = B * 0.85f, G = h * 0.075f;
+        float ground = sim.Ground.Cells > 0 ? MathF.Min(sim.Ground.AnchorY, h) : h;
+
+        // Per-column light: it sweeps in from the left over a few seconds, and soft slow ripples of
+        // brighter light travel along it (shimmer).
+        if (_bowCol.Length < w) _bowCol = new float[w];
+        float reveal = Math.Clamp(age / 4.5f, 0f, 1f);
+        reveal = reveal * reveal * (3f - 2f * reveal);
+        float revealX = -0.15f * w + 1.3f * w * reveal, soft = 0.14f * w;
+        for (int x = 0; x < w; x++)
+        {
+            float m = Math.Clamp((revealX - x) / soft, 0f, 1f);
+            float sh = 0.8f + 0.2f * (0.5f + 0.5f * MathF.Sin(x * 0.006f - _time * 1.1f)) * (0.6f + 0.4f * MathF.Sin(x * 0.0017f + _time * 0.37f));
+            _bowCol[x] = m * sh;
+        }
+
+        int top = Math.Max(0, (int)(cy - R2 - 2)), bottom = Math.Min(h, (int)ground);
+        if (top >= bottom) return;
+        Mark(0, top, w, bottom);
+        for (int y = top; y < bottom; y++)
         {
             float dy = y + 0.5f - cy, dy2 = dy * dy;
-            if (dy2 > R * R) continue;
-            float xo = MathF.Sqrt(R * R - dy2), xi = dy2 < rIn * rIn ? MathF.Sqrt(rIn * rIn - dy2) : 0f;
+            RowCover(y, w);
             uint* row = px + y * w;
+            Band(row, w, cx, dy2, R2, R2 - B2, A * 0.34f, 1);   // secondary bow
+            Band(row, w, cx, dy2, R, R - B, A, 0);              // primary bow
+            Band(row, w, cx, dy2, R - B, R - B - G, A * 0.16f, 2); // light inside the bow
+        }
+
+        // Glints: here and there a point of light along the bow twinkles.
+        _clip = true;
+        for (int k = 0; k < 36; k++)
+        {
+            float a = -MathF.PI / 2 + (Hash01(k, 911) - 0.5f) * 2.2f;
+            float rr = R - B * (0.2f + 0.6f * Hash01(k, 912));
+            float gx = cx + MathF.Cos(a) * rr, gy = cy + MathF.Sin(a) * rr;
+            if (gx < 0 || gx >= w || gy < 0 || gy >= ground) continue;
+            float tw = MathF.Sin(_time * (1.5f + Hash01(k, 913) * 2f) + k);
+            if (tw <= 0.3f) continue;
+            float f = (tw - 0.3f) / 0.7f * _bowCol[(int)gx];
+            Glow(px, w, h, gx, gy, 6f * _scale, A * 0.55f * f, 255, 255, 250);
+        }
+        // Mist: soft haze drifting where the bow meets the ground.
+        float dyg = ground - cy;
+        if (R * R > dyg * dyg)
+        {
+            float fx = MathF.Sqrt(R * R - dyg * dyg);
             for (int side = -1; side <= 1; side += 2)
             {
-                int x0 = (int)MathF.Floor(side < 0 ? cx - xo : cx + xi), x1 = (int)MathF.Ceiling(side < 0 ? cx - xi : cx + xo);
-                x0 = Math.Max(x0, 0); x1 = Math.Min(x1, w);
-                for (int x = x0; x < x1; x++)
+                float footX = cx + side * fx;
+                for (int k = 0; k < 6; k++)
                 {
-                    float dx = x + 0.5f - cx;
-                    float u = (R - MathF.Sqrt(dx * dx + dy2)) / B; // 0 outer edge (red) .. 1 inner (violet)
-                    if (u <= 0f || u >= 1f) continue;
-                    if (Covered(x, y)) continue;
-                    float edge = MathF.Min(1f, MathF.Min(u, 1f - u) / 0.07f); // soft edges, but the red and violet bands stay strong
-                    float fi = u * 5f;
-                    int i0 = Math.Min((int)fi, 4);
-                    float f = fi - i0;
-                    float r = Spectrum[i0, 0] + (Spectrum[i0 + 1, 0] - Spectrum[i0, 0]) * f;
-                    float g = Spectrum[i0, 1] + (Spectrum[i0 + 1, 1] - Spectrum[i0, 1]) * f;
-                    float b = Spectrum[i0, 2] + (Spectrum[i0 + 1, 2] - Spectrum[i0, 2]) * f;
-                    Blend(row + x, r, g, b, alpha * edge);
+                    float drift = MathF.Sin(_time * 0.21f + k * 1.7f) * 0.025f * w;
+                    float mx = footX + (k - 2.5f) * 0.018f * w + drift, my = ground - (0.015f + 0.05f * Hash01(k, 914 + side)) * h;
+                    if (mx < -0.1f * w || mx > 1.1f * w) continue;
+                    float pulse = 0.7f + 0.3f * MathF.Sin(_time * 0.5f + k);
+                    Glow(px, w, h, mx, my, 0.045f * h, A * 0.09f * pulse * _bowCol[Math.Clamp((int)mx, 0, w - 1)], 236, 242, 255);
                 }
             }
         }
         _clip = false;
+    }
+
+    static float[] _bowCol = Array.Empty<float>();
+    static (int A, int B)[] _rowCover = new (int, int)[64];
+    static int _rowCoverN;
+
+    /// <summary>The spans of row y that windows cover (sorted, merged), so the bow skips them cheaply.</summary>
+    static void RowCover(int y, int w)
+    {
+        _rowCoverN = 0;
+        for (int i = 0; i < _occN; i++)
+        {
+            var o = _occ[i];
+            if (y < o.T || y >= o.B || o.R <= 0 || o.L >= w) continue;
+            if (_rowCoverN == _rowCover.Length) Array.Resize(ref _rowCover, _rowCoverN * 2);
+            _rowCover[_rowCoverN++] = (Math.Max(o.L, 0), Math.Min(o.R, w));
+        }
+        Array.Sort(_rowCover, 0, _rowCoverN);
+    }
+
+    /// <summary>One band of the bow on this row: inner radius ri to outer ro. kind 0 primary, 1 secondary, 2 inner light.</summary>
+    static void Band(uint* row, int w, float cx, float dy2, float ro, float ri, float alpha, int kind)
+    {
+        if (dy2 >= ro * ro) return;
+        float xo = MathF.Sqrt(ro * ro - dy2), xi = dy2 < ri * ri ? MathF.Sqrt(ri * ri - dy2) : 0f;
+        float width = ro - ri;
+        for (int side = -1; side <= 1; side += 2)
+        {
+            int x0 = (int)MathF.Floor(side < 0 ? cx - xo : cx + xi), x1 = (int)MathF.Ceiling(side < 0 ? cx - xi : cx + xo);
+            x0 = Math.Max(x0, 0); x1 = Math.Min(x1, w);
+            int c = 0;
+            for (int x = x0; x < x1; x += 2) // colour worked out every other column (it changes too slowly to tell)
+            {
+                // Skip what a window covers.
+                while (c < _rowCoverN && _rowCover[c].B <= x) c++;
+                if (c < _rowCoverN && _rowCover[c].A <= x) { x = _rowCover[c].B - 2; continue; }
+                float col = _bowCol[x];
+                if (col <= 0.002f) continue;
+                float dx = x + 0.5f - cx;
+                float r = MathF.Sqrt(dx * dx + dy2);
+                float u = (ro - r) / width; // 0 at the outer edge .. 1 at the inner edge
+                if (u <= 0f || u >= 1f) continue;
+                float rr, gg, bb, a;
+                if (kind == 2)
+                {
+                    // Light inside the bow: brightest right against it, fading into the sky.
+                    float g = 1f - u;
+                    a = alpha * g * g;
+                    rr = 255; gg = 250; bb = 240;
+                }
+                else
+                {
+                    float v = kind == 0 ? u : 1f - u;     // secondary bow: colours the other way round
+                    float edge = MathF.Min(1f, MathF.Min(u, 1f - u) / 0.12f);
+                    edge = edge * edge * (3f - 2f * edge);
+                    float fi = v * 5f;
+                    int i0 = Math.Min((int)fi, 4);
+                    float f = fi - i0;
+                    rr = Spectrum[i0, 0] + (Spectrum[i0 + 1, 0] - Spectrum[i0, 0]) * f;
+                    gg = Spectrum[i0, 1] + (Spectrum[i0 + 1, 1] - Spectrum[i0, 1]) * f;
+                    bb = Spectrum[i0, 2] + (Spectrum[i0 + 1, 2] - Spectrum[i0, 2]) * f;
+                    // A lighter core along the middle of the band, like light through mist.
+                    float core = 1f - MathF.Abs(u - 0.5f) * 2f;
+                    float lift = 0.18f * core * core;
+                    rr += (255 - rr) * lift; gg += (255 - gg) * lift; bb += (255 - bb) * lift;
+                    a = alpha * edge;
+                }
+                Blend(row + x, rr, gg, bb, a * col);
+                if (x + 1 < x1 && !(c < _rowCoverN && _rowCover[c].A <= x + 1)) Blend(row + x + 1, rr, gg, bb, a * col);
+            }
+        }
     }
 
     /// <summary>A thin ring spreading on the wet taskbar.</summary>

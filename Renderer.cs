@@ -19,11 +19,18 @@ internal static unsafe partial class Renderer
 
         // Falling snow is in the background: it's only drawn where no window is, so it never covers
         // an app's content. (Snow resting on top of windows sits above their top edges, so it stays.)
+        // Every visible window counts here, not just the ones snow settles on: menus, pop-ups, tool
+        // windows and the taskbar all keep the background behind them.
         _occN = 0;
         foreach (var s in sim.Z)
         {
             if (_occN == _occ.Length) Array.Resize(ref _occ, _occN * 2);
             _occ[_occN++] = (s.Left, s.Top, s.Right, s.Bottom);
+        }
+        foreach (var r in sim.Occluders)
+        {
+            if (_occN == _occ.Length) Array.Resize(ref _occ, _occN * 2);
+            _occ[_occN++] = (r.Left, r.Top, r.Right, r.Bottom);
         }
         // The taskbar: nothing on this full-screen layer is ever drawn below its top edge (things
         // land on it and are drawn with the taskbar layer instead).
@@ -126,8 +133,18 @@ internal static unsafe partial class Renderer
                 else Crystal(px, w, h, p.X, py, ref p, a);
                 break;
             }
-            case PKind.Clump: Disc(px, w, h, p.X, py, p.R, p.Alpha, 226, 234, 248, soft: false); break;
-            case PKind.Powder: Disc(px, w, h, p.X, py, p.R, p.Alpha, 250, 252, 255, soft: true); break;
+            case PKind.Clump:
+                if (p.R < 2.5f) { Disc(px, w, h, p.X, py, p.R, p.Alpha, 226, 234, 248, soft: false); break; }
+                {
+                    // A real lump of snow: a few overlapping blobs, tumbling, not a perfect ball.
+                    float a = p.Phase + p.Y * 0.02f, r = p.R;
+                    Disc(px, w, h, p.X, py, r * 0.82f, p.Alpha, 226, 234, 248, soft: false);
+                    Disc(px, w, h, p.X + MathF.Cos(a) * r * 0.55f, py + MathF.Sin(a) * r * 0.45f, r * 0.58f, p.Alpha, 232, 238, 250, soft: false);
+                    Disc(px, w, h, p.X - MathF.Sin(a * 1.3f) * r * 0.5f, py + MathF.Cos(a * 1.3f) * r * 0.5f, r * 0.5f, p.Alpha, 220, 229, 245, soft: false);
+                    Disc(px, w, h, p.X + MathF.Sin(a * 0.7f) * r * 0.75f, py - MathF.Cos(a * 0.7f) * r * 0.6f, r * 0.3f, p.Alpha * 0.9f, 240, 244, 252, soft: true);
+                }
+                break;
+            case PKind.Powder: Disc(px, w, h, p.X, py, p.R, p.Alpha * MathF.Min(1f, p.Age / 0.6f), 250, 252, 255, soft: true); break;
             case PKind.Leaf:
             {
                 float s = MathF.Sin(p.Phase);

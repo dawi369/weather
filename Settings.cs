@@ -61,6 +61,7 @@ internal sealed class Settings
     public DateTime LastUpdateCheckUtc { get; set; }
 
     public bool WelcomeShown { get; set; }
+    public int PlayHintsShown { get; set; }            // "hold Ctrl+Alt to play" tips shown so far
 
     [JsonIgnore] public volatile bool Paused;
 

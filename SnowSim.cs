@@ -164,6 +164,8 @@ internal sealed partial class SnowSim
     public readonly Particle[] Particles = new Particle[MaxParticles];
     public int Count;
     public readonly List<Surface> Z = new(); // window surfaces, topmost first
+    /// <summary>Every visible window (set by the engine): everything in the background is drawn behind these.</summary>
+    public List<Native.RECT> Occluders = new();
     public readonly Surface Ground = new() { IsGround = true };
     public int ScreenW, ScreenH;
     public float Wind;
@@ -182,6 +184,7 @@ internal sealed partial class SnowSim
         ScreenH = screenH;
         ApplySettings(settings);
 
+        AddVehicleSurfaces(wins);
         SyncWindows(wins, dt);
         SyncGround(groundY);
         foreach (var s in Z) HandOff(s);
@@ -427,6 +430,8 @@ internal sealed partial class SnowSim
             g.Reshape(CellsFor(ScreenW), 0);
             g.Left = 0;
             g.Right = ScreenW;
+            if (Environment.GetEnvironmentVariable("WINDOWSILL_PREFILL") == "1") // tests: start with a snowy taskbar
+                for (int i = 0; i < g.Cells; i++) g.H[i] = MaxDepth * (0.55f + 0.35f * MathF.Sin(i * 0.013f) * MathF.Sin(i * 0.0047f + 1f));
         }
         g.AnchorY = g.Top = groundY;
         g.Bottom = ScreenH;
@@ -857,6 +862,7 @@ internal sealed partial class SnowSim
         p.Phase = R(0f, 6.283f);
         p.Freq = R(2f, 5f);
         p.NoLand = 0.15f;
+        if (kind == PKind.Powder) p.Age = R(0.8f, 1.8f); // fine powder thins out and blows away quickly
     }
 
     void StepParticles(float dt)
@@ -937,6 +943,8 @@ internal sealed partial class SnowSim
                 }
                 case PKind.Powder:
                     p.NoLand -= dt;
+                    p.Age -= dt;
+                    if (p.Age <= 0) { Particles[n] = Particles[--Count]; continue; }
                     p.VY += 220f * dt;
                     p.VX += (wind - p.VX) * 2.8f * dt;
                     p.VY -= p.VY * 2.2f * dt;
@@ -1562,8 +1570,15 @@ internal sealed partial class SnowSim
         float vol = h[edge] * Cell;
         if (vol > 0.3f && s.Vis[edge] == 1)
         {
-            float x = dir > 0 ? s.Right + 1f : s.Left - 1f;
-            AddClump(x, s.PileTop(edge), vol, s.VX + s.SlideVel, MathF.Min(s.VY, 0f) * 0.5f + R(-20f, 10f), PKind.Clump);
+            // The column slid past the edge joins the overhang there, which breaks off in chunks
+            // (see Drip), rather than dropping as a bead per column.
+            bool free = dir > 0 ? s.LinkR == null : s.LinkL == null;
+            if (free && !s.Clamped) { if (dir > 0) s.OverR += vol; else s.OverL += vol; }
+            else
+            {
+                float x = dir > 0 ? s.Right + 1f : s.Left - 1f;
+                AddClump(x, s.PileTop(edge), vol, s.VX + s.SlideVel, MathF.Min(s.VY, 0f) * 0.5f + R(-20f, 10f), PKind.Clump);
+            }
         }
         if (dir > 0) { Array.Copy(h, 0, h, 1, n - 1); h[0] = 0; }
         else { Array.Copy(h, 1, h, 0, n - 1); h[n - 1] = 0; }
@@ -1617,7 +1632,10 @@ internal sealed partial class SnowSim
         float cap = (0.18f + 0.27f * DripPace) * hold * hold;
         if (brk <= 0) brk = R(0.5f, 1f);
         bool jolt = MathF.Abs(s.AX) > ShakeAccel * 0.5f || s.AY > FlingAccel * 0.5f;
-        if (over < cap * brk && !jolt && hEdge >= 1f) return;
+        // Never a trickle: only a real chunk comes away (a jolt shakes off one sooner, but still a chunk).
+        float minSlab = Material == Material.Snow ? 14f : 0f;
+        if (over < MathF.Max(cap * brk, minSlab) && !(jolt && over >= minSlab * 0.5f) && hEdge >= 1f) return;
+        if (over < minSlab * 0.5f) return;
         // Petals and leaves come off one at a time: wait until there is at least a whole one.
         if (Material != Material.Snow && !jolt && over < (Material == Material.Leaves ? 24f : 10f)) return;
 
@@ -1637,7 +1655,7 @@ internal sealed partial class SnowSim
         for (int k = 0; k < bits; k++)
             AddClump(cx0 + R(-1f, 1f) * MathF.Max(3f, reach), cy0 + R(-0.6f, 0.8f) * MathF.Max(2f, hEdge * 0.5f), slab * 0.45f / bits * R(0.4f, 1.6f),
                      vx + R(-22f, 22f), vy + R(-6f, 14f), PKind.Clump); // uneven bits that drift apart as they fall
-        for (int k = 0; k < (Material == Material.Snow ? 2 : 0); k++)
+        for (int k = 0; k < (Material == Material.Snow && slab > 40f ? 2 : 0); k++) // a puff of powder only off a big slab
             AddClump(edgeX + side * reach * R(0f, 1f), s.AnchorY - hEdge * R(0f, 0.8f), 0f, vx + R(-25f, 25f), vy - R(10f, 50f), PKind.Powder);
     }
 

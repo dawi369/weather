@@ -37,6 +37,7 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
         _engine = new Engine(_overlay, _ground, _taskbar, _settings);
         _engine.Start();
         _hook = new InputHook(() => _engine.Sim, () => _settings.PlayWithMouse && !_settings.Paused);
+        _hook.PlainClick = OfferPlayHint;
 
         _menu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), Font = Theme.Font(10f), ShowImageMargin = true, ShowCheckMargin = false };
         _menu.Opening += (_, _) => BuildMenu();
@@ -179,6 +180,29 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
     }
 
     public void Request(SeasonAction a) => _engine.Sim.Request(a);
+
+    DateTime _lastHint = DateTime.MinValue;
+
+    /// <summary>
+    /// Someone clicked right on the snow (or leaves) without Ctrl+Alt: they probably want to play with
+    /// it. Say how, now and then (three times in all, at least ten minutes apart).
+    /// </summary>
+    void OfferPlayHint(int x, int y)
+    {
+        if (!_settings.PlayWithMouse || _settings.PlayHintsShown >= 3 || DateTime.Now - _lastHint < TimeSpan.FromMinutes(10)) return;
+        if (!_engine.Sim.IsOnPile(x, y)) return;
+        _lastHint = DateTime.Now;
+        _settings.PlayHintsShown++;
+        _settings.Save();
+        string how = CurrentSeason switch
+        {
+            Season.Winter => "Ctrl+Alt+drag the snow to make a snowball and throw it. Ctrl+Alt+right-click builds a snowman.",
+            Season.Spring => "Ctrl+Alt+drag to sweep through the petals. Ctrl+Alt+right-click starts a shower.",
+            Season.Summer => "Ctrl+Alt+drag to blow a dandelion clock. Ctrl+Alt+right-click releases a butterfly.",
+            _ => "Ctrl+Alt+drag to kick through the leaves. Ctrl+Alt+right-click whips up a dust devil.",
+        };
+        _icon.ShowBalloonTip(6000, "Hold Ctrl+Alt to play", how, ToolTipIcon.None);
+    }
     public void ClearNow() => _engine.RequestWipe();
 
     // ───────────────────────────── windows ─────────────────────────────

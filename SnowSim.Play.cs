@@ -34,6 +34,7 @@ internal sealed class Vehicle
     public int Dir;
     public float X, Speed, Frame, Puff, W, H, Scale;
     public int BermCells; // length of the mound of snow being pushed along (snowplough)
+    public float Spill;   // snow (px²) riding up over the blade, about to be thrown back
 }
 
 internal sealed class Splat
@@ -533,59 +534,72 @@ internal sealed partial class SnowSim
 
         if (!v.Blower)
         {
-            // The blade scrapes the taskbar down to a dusting and rolls everything into a mound in
-            // front of it. Nothing vanishes: the mound keeps all the snow it has gathered, growing
-            // longer (not taller than the blade) as it goes, and only what is shoved off the edge of
-            // the screen is lost (and you see it tumble off).
+            // The blade scrapes the taskbar down to a dusting and rolls the snow into a mound in front
+            // of it, right up against the blade. The mound can only be so tall (the blade) and so long;
+            // whatever more the plough gathers rides up and over the top of the blade, arcs back over
+            // the cab and lands behind it, the way an overloaded plough spills. Nothing vanishes: only
+            // what's shoved off the end of the screen is lost, and you see it tumble off.
             int dir = v.Dir;
-            float bladeH = MathF.Min(22f * sc, MaxDepth * 1.15f);
+            float bladeH = 0.55f * v.H; // as high as the blade itself
+            int maxLen = Math.Max(6, (int)(12f * bladeH / Cell)); // a long windrow before anything spills
             int iFront = (int)MathF.Floor((front - g.Left) / Cell);
             int iBack = (int)MathF.Floor((back - g.Left) / Cell);
             float load = 0;
-            for (int i = Math.Min(iFront, iBack); i <= Math.Max(iFront, iBack); i++)
+            for (int i = Math.Min(iFront - 7 * dir, iBack); i <= Math.Max(iFront - 7 * dir, iBack); i++)
             {
                 if ((uint)i >= (uint)g.Cells) continue;
                 float take = MathF.Max(0f, g.H[i] - 0.3f);
                 g.H[i] -= take;
                 load += take;
             }
-            // Gather last frame's mound (and whatever lies under where the new one will be), then lay
-            // the mound again just ahead of the blade.
-            int gathered = 0, L = 3;
-            float hm = 0;
-            for (int pass = 0; pass < 5; pass++)
+            // Gather last frame's mound and whatever lies where the new one will go.
+            int reach = Math.Min(maxLen, Math.Max(v.BermCells, 3)) + 3;
+            for (int k = -6; k <= reach; k++) // from well under the blade's edge
             {
-                int reach = Math.Max(v.BermCells, L) + 3;
-                for (int k = gathered + 1; k <= reach; k++)
-                {
-                    int i = iFront + dir * k;
-                    if ((uint)i >= (uint)g.Cells) continue;
-                    load += g.H[i];
-                    g.H[i] = 0;
-                }
-                gathered = Math.Max(gathered, reach);
-                L = Math.Max(3, (int)MathF.Ceiling(load / (0.785f * bladeH)));
-                if (L + 3 <= gathered) break;
-            }
-            hm = load / (0.785f * L);
-            float lost = 0;
-            for (int k = 1; k <= L; k++)
-            {
-                float q = (k - 0.5f) / L;
-                float hk = hm * MathF.Sqrt(MathF.Max(0f, 1f - q * q)); // tall against the blade, tapering ahead
                 int i = iFront + dir * k;
+                if ((uint)i >= (uint)g.Cells) continue;
+                load += g.H[i];
+                g.H[i] = 0;
+            }
+            float capacity = 0.785f * bladeH * maxLen;
+            float over = MathF.Max(0f, load - capacity);
+            load -= over;
+            int L = Math.Clamp((int)MathF.Ceiling(load / (0.785f * bladeH)), 3, maxLen);
+            float hm = load / (0.785f * L);
+            float lost = 0;
+            for (int k = 0; k < L; k++)
+            {
+                float q = (k + 0.5f) / L;
+                float hk = hm * MathF.Sqrt(MathF.Max(0f, 1f - q * q)); // tall against the blade, tapering ahead
+                int i = iFront + dir * (k - 6); // tucked under the blade's lower edge, so no gap shows
                 if ((uint)i < (uint)g.Cells) g.H[i] += hk;
                 else lost += hk;
             }
             v.BermCells = L;
+
+            // Spilling over the blade: it builds up a moment, then a real chunk of snow (or two) rides up
+            // over the top and is thrown back over the plough, clearing it and landing behind; some
+            // lands on the bonnet and cab roof instead and rides along.
+            v.Spill += over * Cell;
+            if (v.Spill > 90f)
+            {
+                int pieces = 1;
+                for (int k = 0; k < pieces; k++)
+                    AddClump(front - dir * R(0f, 10f) * sc, g.AnchorY - bladeH - R(2f, 6f) * sc, v.Spill / pieces,
+                             dir * v.Speed * R(-0.4f, 0.05f), -R(220f, 380f) * MathF.Sqrt(sc), PKind.Clump);
+                for (int k = 0; k < 3; k++) // and a little spray of loose powder off the top of the blade
+                    AddClump(front - dir * R(0f, 14f) * sc, g.AnchorY - bladeH - R(0f, 8f) * sc, 0f,
+                             dir * v.Speed * R(-0.5f, 0.3f), -R(120f, 300f) * MathF.Sqrt(sc), PKind.Powder);
+                v.Spill = 0;
+            }
             if (lost > 0.2f && R() < 0.8f)
             {
                 // Shoved off the end of the screen: it tumbles away.
                 float ex = dir > 0 ? ScreenW - 2f : 2f;
                 AddClump(ex, g.AnchorY - R(1f, MathF.Max(2f, hm)), 0f, dir * R(30f, 120f), -R(0f, 90f), PKind.Clump);
             }
-            // Loose snow crumbling off the top of the mound.
-            if (hm > 2f && R() < 0.5f)
+            // Loose snow crumbling off the face of the mound.
+            if (hm > 2f && R() < 0.4f)
             {
                 float mx = front + dir * R(0.05f, 0.5f) * L * Cell;
                 if (mx > 0 && mx < ScreenW)
@@ -997,5 +1011,62 @@ internal sealed partial class SnowSim
             _devilTimer = R(150f, 420f);
             if (_devilsOn && Season == Season.Autumn && GroundOn) StartDevil(R(0.1f, 0.9f) * ScreenW);
         }
+    }
+}
+
+internal sealed partial class SnowSim
+{
+    /// <summary>
+    /// Is the point on a visible pile (snow, leaves or petals) on a window's top edge or the taskbar?
+    /// Read from the UI thread for a hint, so it only reads, and tolerates a pile changing under it.
+    /// </summary>
+    public bool IsOnPile(float x, float y)
+    {
+        try
+        {
+            foreach (var s in Z)
+            {
+                if (x < s.Left || x >= s.Right || s.Clamped || s.NoSnow || s.Cells == 0) continue;
+                int i = s.Col(x);
+                if (s.Vis[i] == 0 || s.H[i] < 2f) continue;
+                if (y >= s.PileTop(i) - 4f && y < s.AnchorY) return true;
+            }
+            if (GroundOn && Ground.Cells > 0 && x >= 0 && x < ScreenW)
+            {
+                int i = Ground.Col(x);
+                if (Ground.H[i] >= 2f && y >= Ground.PileTop(i) - 4f && y < Ground.AnchorY) return true;
+            }
+        }
+        catch { /* the window list changed while we looked */ }
+        return false;
+    }
+}
+
+internal sealed partial class SnowSim
+{
+    static readonly IntPtr PloughRoof = new(-1001), PloughBonnet = new(-1002);
+
+    /// <summary>
+    /// The plough is solid: its cab roof and bonnet are surfaces like a window's top edge, so snow
+    /// falling on it (or thrown back over the blade) lands there, rides along and slides or drips
+    /// off the ends. They're added in front of every window; when the plough has gone, so are they
+    /// (and their snow falls).
+    /// </summary>
+    void AddVehicleSurfaces(List<WinInfo> wins)
+    {
+        var v = Vehicle;
+        if (v == null || v.Blower || !GroundOn || Ground.Cells == 0) return;
+        float u = v.Scale, left = v.X - v.W * 0.5f, top = Ground.AnchorY + 1f - v.H;
+        void Add(IntPtr id, float x0, float x1, float y)
+        {
+            // Sprite units (70 wide, facing right); mirrored when it drives left.
+            float a = v.Dir > 0 ? x0 : 70f - x1, b = v.Dir > 0 ? x1 : 70f - x0;
+            int t = (int)MathF.Round(top + y * u);
+            var r = new Native.RECT { Left = (int)MathF.Round(left + a * u), Right = (int)MathF.Round(left + b * u), Top = t, Bottom = t + 2 };
+            if (r.Right <= 0 || r.Left >= ScreenW) return;
+            wins.Insert(0, new WinInfo(id, r, false, false));
+        }
+        Add(PloughBonnet, 28.5f, 44f, 14f);
+        Add(PloughRoof, 8.5f, 27.5f, 3.6f);
     }
 }

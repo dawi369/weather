@@ -317,6 +317,7 @@ internal sealed unsafe class Engine
                 if (Interlocked.Exchange(ref _wipeRequested, 0) == 1) _sim.Wipe();
 
                 var wins = _tracker.Enumerate(screen);
+                _sim.Occluders = _tracker.Occluders;
                 _taskbar.Offset = _settings.TaskbarSnowOffset;
                 int groundY = _taskbar.GroundY(screen, workArea);
                 _screen = screen; _workArea = workArea; _groundY = groundY;

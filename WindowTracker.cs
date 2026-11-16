@@ -25,6 +25,13 @@ internal sealed class WindowTracker
     const byte Skip = 0, Normal = 1, NoSnow = 2;
 
     readonly List<WinInfo> _list = new();
+
+    /// <summary>
+    /// Every visible window on screen (any kind: tool windows, menus, pop-ups, the taskbar), for
+    /// keeping the weather behind them all. Snow only settles on the main list.
+    /// </summary>
+    public readonly List<Native.RECT> Occluders = new();
+    static readonly HashSet<string> DesktopClasses = new() { "Progman", "WorkerW" };
     readonly Dictionary<IntPtr, byte> _kind = new();
     readonly Dictionary<uint, string> _procNames = new();
     readonly Native.EnumWindowsProc _proc;
@@ -47,10 +54,12 @@ internal sealed class WindowTracker
     {
         var ignored = _ignored();
         if (!ReferenceEquals(ignored, _ignoredSeen)) { _ignoredSeen = ignored; _kind.Clear(); } // the list changed
-        if (++_calls % 1800 == 0) { _kind.Clear(); _procNames.Clear(); } // HWNDs and PIDs get recycled
+        if (++_calls % 1800 == 0) { _kind.Clear(); _procNames.Clear(); _occOk.Clear(); } // HWNDs and PIDs get recycled
         _screen = screen;
         _list.Clear();
+        Occluders.Clear();
         Native.EnumWindows(_proc, IntPtr.Zero);
+        if (Only != null) foreach (var w in _list) Occluders.Add(w.Rect); // tests: only the test windows count
         return _list;
     }
 
@@ -82,6 +91,7 @@ internal sealed class WindowTracker
     bool Visit(IntPtr h, IntPtr _)
     {
         if (h == _self || h == _self2 || !Native.IsWindowVisible(h) || Native.IsIconic(h)) return true;
+        if (Only == null) AddOccluder(h);
 
         uint ex = Native.ExStyle(h);
         if (!_kind.TryGetValue(h, out byte kind)) _kind[h] = kind = Classify(h);
@@ -100,5 +110,24 @@ internal sealed class WindowTracker
 
         _list.Add(new WinInfo(h, r, Native.IsZoomed(h), kind == NoSnow));
         return true;
+    }
+
+    readonly Dictionary<IntPtr, bool> _occOk = new();
+
+    void AddOccluder(IntPtr h)
+    {
+        if (!_occOk.TryGetValue(h, out bool ok))
+        {
+            ok = !DesktopClasses.Contains(Native.ClassName(h));
+            _occOk[h] = ok;
+        }
+        if (!ok || Native.IsCloaked(h)) return;
+        uint ex = Native.ExStyle(h);
+        if ((ex & Native.WS_EX_TRANSPARENT) != 0) return; // click-through overlays (like ours) don't hide anything
+        if (!Native.VisibleBounds(h, out var r) || r.Width < 8 || r.Height < 8) return;
+        if (r.Right <= _screen.Left || r.Left >= _screen.Right || r.Bottom <= _screen.Top || r.Top >= _screen.Bottom) return;
+        // An invisible layered window spread over the whole screen would hide everything: skip those.
+        if ((ex & Native.WS_EX_LAYERED) != 0 && r.Width >= _screen.Width * 0.95 && r.Height >= _screen.Height * 0.95 && !Native.IsZoomed(h)) return;
+        Occluders.Add(r);
     }
 }

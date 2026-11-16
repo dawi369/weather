@@ -27,6 +27,9 @@ internal sealed class InputHook : IDisposable
     readonly HookProc _proc;
     readonly Func<SnowSim?> _sim;
     readonly Func<bool> _enabled;
+
+    /// <summary>A normal left click (no Ctrl+Alt), which goes through untouched. Called on the UI thread; keep it quick.</summary>
+    public Action<int, int>? PlainClick;
     IntPtr _hook;
     bool _leftDown, _rightDown; // a press we swallowed: swallow its release too
 
@@ -51,6 +54,9 @@ internal sealed class InputHook : IDisposable
             var sim = _sim();
             switch (msg)
             {
+                case WM_LBUTTONDOWN when !chord:
+                    PlainClick?.Invoke(m.X, m.Y); // passes straight through; only used to offer a tip
+                    break;
                 case WM_MOUSEMOVE:
                     if (_leftDown) sim?.Enqueue(new PlayCommand(PlayKind.Move, m.X, m.Y, Now));
                     break; // moves always pass through
