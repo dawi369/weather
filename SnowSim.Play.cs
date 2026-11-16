@@ -601,7 +601,10 @@ internal sealed partial class SnowSim
             // what's shoved off the end of the screen is lost, and you see it tumble off.
             int dir = v.Dir;
             float bladeH = 0.55f * v.H; // as high as the blade itself
-            int maxLen = Math.Max(6, (int)(12f * bladeH / Cell)); // a long windrow before anything spills
+            // A real blade carries a heap only about three times as long as it is high; any more and
+            // it rides up the blade and spills over the top (it used to be twelve, so the snow was
+            // shoved further and further ahead in a long flat windrow and hardly ever spilled).
+            int maxLen = Math.Max(6, (int)(3f * bladeH / Cell));
             int iFront = (int)MathF.Floor((front - g.Left) / Cell);
             int iBack = (int)MathF.Floor((back - g.Left) / Cell);
             float load = 0;
@@ -643,7 +646,7 @@ internal sealed partial class SnowSim
             v.Spill += over * Cell;
             if (v.Spill > 90f)
             {
-                int pieces = 1;
+                int pieces = Math.Clamp((int)(v.Spill / 260f), 1, 3); // heavy going: a few chunks at once
                 for (int k = 0; k < pieces; k++)
                     AddClump(front - dir * R(0f, 10f) * sc, g.AnchorY - bladeH - R(2f, 6f) * sc, v.Spill / pieces,
                              dir * v.Speed * R(-0.4f, 0.05f), -R(220f, 380f) * MathF.Sqrt(sc), PKind.Clump);
