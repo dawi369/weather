@@ -2,14 +2,13 @@ namespace Windowsill;
 
 /// <summary>
 /// First run: a small card above the tray saying hello, where the app lives and how to play.
-/// Fades in, and away again after a while if left alone.
+/// It stays until it's closed, or until the first time someone actually plays.
 /// </summary>
 internal sealed class WelcomeCard : Form
 {
     readonly Season _season;
     readonly float _k;
     readonly System.Windows.Forms.Timer _fade = new() { Interval = 15 };
-    readonly System.Windows.Forms.Timer _life = new() { Interval = 30_000 };
     bool _closing;
     public event Action? OpenSettings;
 
@@ -29,7 +28,7 @@ internal sealed class WelcomeCard : Form
         Opacity = 0;
         DoubleBuffered = true;
 
-        var open = new PillButton("Show me around", primary: true) { Accent = SeasonInfo.Accent(season) };
+        var open = new PillButton("See all moves", primary: true) { Accent = SeasonInfo.Accent(season) };
         open.SetBounds(Width - S(170) - S(20), Height - S(56), S(170), S(36));
         open.Click += (_, _) => { OpenSettings?.Invoke(); FadeOut(); };
         var ok = new PillButton("Got it") { Accent = SeasonInfo.Accent(season) };
@@ -51,7 +50,6 @@ internal sealed class WelcomeCard : Form
                 if (Opacity >= 1) _fade.Stop();
             }
         };
-        _life.Tick += (_, _) => FadeOut();
         HandleCreated += (_, _) => Theme.DarkChrome(this);
         Shown += (_, _) => _fade.Start(); // it stays until you close it: this is how you learn to play
     }
@@ -76,11 +74,10 @@ internal sealed class WelcomeCard : Form
 
     int S(float v) => (int)MathF.Round(v * _k);
 
-    void FadeOut()
+    public void FadeOut()
     {
         if (_closing) return;
         _closing = true;
-        _life.Stop();
         _fade.Start();
     }
 
@@ -111,7 +108,7 @@ internal sealed class WelcomeCard : Form
         using var soft = new SolidBrush(Color.FromArgb(225, 255, 255, 255));
         using var text = new SolidBrush(Color.FromArgb(214, 218, 228));
         g.DrawString("Hold Ctrl+Alt to play", hf, white, S(74), S(14));
-        g.DrawString($"{AppInfo.Name} is running. Your clicks still go to your apps as normal.", sf, soft,
+        g.DrawString($"{AppInfo.Name} lives in the tray (^). Your clicks still go to your apps as normal.", sf, soft,
                      new RectangleF(S(75), S(40), Width - S(150), S(32)));
 
         float y = 90 * k;
@@ -136,17 +133,17 @@ internal sealed class WelcomeCard : Form
         }
         Line("Ctrl+Alt+Drag", _season switch
         {
-            Season.Winter => "on snow: roll a snowball, let go to throw",
-            Season.Spring => "through the petals to scatter them",
-            Season.Summer => "to blow a dandelion clock",
-            _ => "through the leaves to kick them up",
+            Season.Winter => "Roll a snowball on a ledge; let go to throw it.",
+            Season.Spring => "Sweep through the petals to scatter them.",
+            Season.Summer => "Blow a dandelion clock.",
+            _ => "Kick through the leaves.",
         });
         Line("Ctrl+Alt+Right-click", _season switch
         {
-            Season.Winter => "on snow: build a snowman",
-            Season.Spring => "start a spring shower",
-            Season.Summer => "release a butterfly",
-            _ => "whip up a dust devil",
+            Season.Winter => "Build a snowman on the snow.",
+            Season.Spring => "Start or stop a shower.",
+            Season.Summer => "Release a butterfly.",
+            _ => "Start a dust devil.",
         });
         using var pen = new Pen(Theme.Line);
         g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
@@ -154,7 +151,7 @@ internal sealed class WelcomeCard : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { _fade.Dispose(); _life.Dispose(); }
+        if (disposing) _fade.Dispose();
         base.Dispose(disposing);
     }
 }

@@ -305,9 +305,8 @@ internal sealed class SettingsForm : Form
                     Toggle("Plough the taskbar when it gets deep", "A little snowplough drives along and pushes the snow off the edge. The same switch sends the leaf blower in autumn.", () => _s.AutoPlow, v => _s.AutoPlow = v),
                     showing ? Button("Send the snowplough", "Clear the taskbar now.", "Send", () => _host.Request(SeasonAction.Plow), primary: true) : null));
                 list.Add(new Caption("Play"));
-                list.Add(new Tip(("Ctrl+Alt+Drag", "Start on a snowy ledge: roll a snowball, let go to throw it."),
-                                 ("Ctrl+Alt+Click", "On the desktop: a snowball splat."),
-                                 ("Ctrl+Alt+Right-click", "On snow: build a snowman. On a snowman: knock it over.")));
+                list.Add(new Tip(("Ctrl+Alt+Drag", "Roll a snowball on a ledge; let go to throw it. Hit a snowman or the snowplough to knock it over."),
+                                 ("Ctrl+Alt+Right-click", "Build a snowman on the snow. On a snowman: knock it over.")));
                 break;
 
             case Season.Spring:

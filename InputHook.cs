@@ -30,6 +30,8 @@ internal sealed class InputHook : IDisposable
 
     /// <summary>A normal left click (no Ctrl+Alt), which goes through untouched. Called on the UI thread; keep it quick.</summary>
     public Action<int, int>? PlainClick;
+    /// <summary>A Ctrl+Alt click was taken for play (called on the UI thread; keep it quick).</summary>
+    public Action? Played;
     IntPtr _hook;
     bool _leftDown, _rightDown; // a press we swallowed: swallow its release too
 
@@ -63,6 +65,7 @@ internal sealed class InputHook : IDisposable
                 case WM_LBUTTONDOWN when chord && _enabled() && sim != null:
                     _leftDown = true;
                     sim.Enqueue(new PlayCommand(PlayKind.Down, m.X, m.Y, Now));
+                    Played?.Invoke();
                     return 1;
                 case WM_LBUTTONUP when _leftDown:
                     _leftDown = false;
@@ -71,6 +74,7 @@ internal sealed class InputHook : IDisposable
                 case WM_RBUTTONDOWN when chord && _enabled() && sim != null:
                     _rightDown = true;
                     sim.Enqueue(new PlayCommand(PlayKind.Right, m.X, m.Y, Now));
+                    Played?.Invoke();
                     return 1;
                 case WM_RBUTTONUP when _rightDown:
                     _rightDown = false;

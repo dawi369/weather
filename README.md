@@ -31,7 +31,7 @@ Hold **Ctrl + Alt** and use the mouse (normal clicks are never touched):
 
 | | Drag | Right-click |
 |---|---|---|
-| Winter | scoop snow off a ledge, roll it bigger, throw it. A plain click over the desktop: splat | build a snowman from the snow there, or knock one over |
+| Winter | scoop snow off a ledge, roll it bigger, let go to throw it sideways: hit a snowman or the snowplough to knock it over | build a snowman from the snow there, or knock one over |
 | Spring | sweep through the petals | start or stop a shower |
 | Summer | blow a dandelion clock | release a butterfly (fireflies at night) |
 | Autumn | kick up the leaves | start a dust devil |

@@ -35,6 +35,10 @@ internal sealed class Vehicle
     public float X, Speed, Frame, Puff, W, H, Scale;
     public int BermCells; // length of the mound of snow being pushed along (snowplough)
     public float Spill;   // snow (px²) riding up over the blade, about to be thrown back
+    // Knocked over by a snowball: it tips onto its side, lies there a moment, then rocks back up.
+    public float Tilt, TiltV, Down, Hop, HopV;
+    public int TipDir;
+    public bool Knocked => Down > 0 || MathF.Abs(Tilt) > 0.08f;
 }
 
 internal sealed class Splat
@@ -82,7 +86,7 @@ internal sealed partial class SnowSim
 
     bool _playOn = true, _autoPlowOn = true, _butterfliesOn = true, _firefliesOn = true, _devilsOn = true;
     bool _dragging;
-    float _lastX, _lastY, _pathAcc;
+    float _lastX, _lastY, _pathAcc, _downX;
     double _lastT;
     readonly (double T, float X, float Y)[] _trail = new (double, float, float)[12];
     int _trailN;
@@ -144,6 +148,7 @@ internal sealed partial class SnowSim
                 _trailN = 0;
                 Trail(c);
                 _lastX = x; _lastY = y; _lastT = c.T; _pathAcc = 0;
+                _downX = x;
                 if (Season == Season.Winter) StartBall(x, y);
                 else if (Season == Season.Summer) SeedPuff(x, y, 0, 0, 5);
                 break;
@@ -311,13 +316,29 @@ internal sealed partial class SnowSim
         Holding = false;
         var (vx, vy) = TrailVelocity();
         float sp = MathF.Sqrt(vx * vx + vy * vy);
+        // Snowballs are thrown sideways across the desktop (at the snowmen, the plough, the robin),
+        // never into the glass. Letting go without a flick still lobs it gently: the way the drag
+        // was going, or else towards the middle of the screen.
+        float k = MathF.Sqrt(MathF.Max(1f, UiScale));
         if (sp < 160f)
         {
-            // Not thrown, just let go: on the desktop it splats, over a window it drops behind it.
-            SplatAt(x, y, HeldVol);
-            return;
+            float side = MathF.Abs(x - _downX) > 6f ? MathF.Sign(x - _downX) : (x < ScreenW * 0.5f ? 1f : -1f);
+            vx = side * R(470f, 560f) * k;
+            vy = -R(330f, 400f) * k;
         }
-        if (sp > 2600f) { vx *= 2600f / sp; vy *= 2600f / sp; }
+        else
+        {
+            if (sp > 2600f) { vx *= 2600f / sp; vy *= 2600f / sp; sp = 2600f; }
+            // Mostly sideways: a flick straight up or down still sends it across, with a little arc.
+            float minX = 0.55f * sp;
+            if (MathF.Abs(vx) < minX) vx = (vx == 0 ? (x < ScreenW * 0.5f ? 1f : -1f) : MathF.Sign(vx)) * minX;
+            // A throw arcs: the harder it's thrown, the more loft, so a flat flick along a ledge
+            // carries well along it instead of dropping straight into the snow.
+            vy = Math.Clamp(vy, -0.9f * sp, 0.35f * sp) - (0.12f * MathF.Abs(vx) + 80f * k);
+        }
+        // Thrown from the pile itself: it leaves from just above the snow, not from inside it.
+        var pile = PileNear(x, y, out int pc);
+        if (pile != null) y = MathF.Min(y, pile.PileTop(pc) - HeldRadius - 3f);
         if (Count >= MaxParticles) return;
         ref var p = ref NewParticle(PKind.Ball);
         p.X = x; p.Y = y; p.VX = vx; p.VY = vy;
@@ -383,6 +404,35 @@ internal sealed partial class SnowSim
         for (int k = 0; k < n && Count < MaxParticles; k++)
             AddClump(p.X, y - 2f, k < n / 3 ? p.Vol * 0.2f / (n / 3) : 0f,
                      p.VX * R(0.05f, 0.25f) + R(-160f, 160f), -R(80f, 320f), k % 2 == 0 ? PKind.Powder : PKind.Clump);
+    }
+
+    /// <summary>A snowball hits the plough (or blower): it's knocked onto its side.</summary>
+    bool BallHitsVehicle(ref Particle p)
+    {
+        var v = Vehicle;
+        if (v == null || v.Down > 0 || MathF.Abs(v.Tilt) > 0.3f || !GroundOn) return false;
+        float top = Ground.AnchorY - v.H - v.Hop;
+        if (p.X < v.X - v.W * 0.5f - p.R || p.X > v.X + v.W * 0.5f + p.R || p.Y < top - p.R || p.Y > Ground.AnchorY + p.R) return false;
+        v.TipDir = p.VX > 30f ? 1 : p.VX < -30f ? -1 : (p.X < v.X ? 1 : -1);
+        v.TiltV = v.TipDir * (5f + MathF.Min(MathF.Abs(p.VX), 1600f) / 260f);
+        v.HopV = 120f * v.Scale;
+        v.Down = 2.3f;
+        Puff(p.X, p.Y, 18, 260f);
+        int n = Math.Clamp((int)(p.Vol / 40f), 4, 12);
+        for (int k = 0; k < n && Count < MaxParticles; k++)
+            AddClump(p.X, p.Y, p.Vol * 0.6f / n, -p.VX * R(0.05f, 0.2f) + R(-120f, 120f), -R(80f, 260f), PKind.Clump);
+        return true;
+    }
+
+    /// <summary>A snowball hits a robin or ladybird: it's off.</summary>
+    void BallScaresVisitors(in Particle p)
+    {
+        foreach (var vis in Visitors)
+        {
+            if (vis.State == 2) continue;
+            float dx = vis.X - p.X, dy = vis.Y - p.Y, r = 26f * UiScale + p.R;
+            if (dx * dx + dy * dy < r * r) FlyOff(vis);
+        }
     }
 
     bool BallHitsSnowman(ref Particle p)
@@ -514,13 +564,16 @@ internal sealed partial class SnowSim
     public void StartVehicle(bool blower)
     {
         if (Vehicle != null || !GroundOn || Ground.Cells == 0) return;
-        var img = Sprites.Vehicle(blower, 0, UiScale * 1.4f); // drawn a bit bigger than the UI, so it's an event
+        // Drawn a bit bigger than the UI, so it's an event. The same scale for drawing, its blade and
+        // its roof (they used to differ, which left the mound sitting ahead of the drawn blade).
+        float scale = UiScale * 1.2f;
+        var img = Sprites.Vehicle(blower, 0, scale);
         int dir = R() < 0.5f ? 1 : -1;
         Vehicle = new Vehicle
         {
             Blower = blower,
             Dir = dir,
-            W = img.W, H = img.H, Scale = UiScale,
+            W = img.W, H = img.H, Scale = scale,
             X = dir > 0 ? -img.W : ScreenW + img.W,
             Speed = 150f * UiScale,
         };
@@ -531,13 +584,15 @@ internal sealed partial class SnowSim
         var v = Vehicle;
         if (v == null) return;
         if (!GroundOn || Ground.Cells == 0) { Vehicle = null; return; }
-        v.X += v.Dir * v.Speed * dt;
-        v.Frame += dt;
+        UpdateKnock(v, dt);
+        bool knocked = v.Knocked;
+        if (!knocked) { v.X += v.Dir * v.Speed * dt; v.Frame += dt; }
         var g = Ground;
         float sc = v.Scale;
         float front = v.X + v.Dir * v.W * 0.5f, back = v.X - v.Dir * v.W * 0.4f;
 
-        if (!v.Blower)
+        if (knocked) { } // on its side: the blade isn't touching anything
+        else if (!v.Blower)
         {
             // The blade scrapes the taskbar down to a dusting and rolls the snow into a mound in front
             // of it, right up against the blade. The mound can only be so tall (the blade) and so long;
@@ -646,7 +701,7 @@ internal sealed partial class SnowSim
 
         // Anything in the way gets bowled over.
         foreach (var sm in Snowmen)
-            if (sm.OnGround && !sm.Falling && MathF.Abs(sm.X - front) < 10f * sc) Topple(sm, v.Dir * R(250f, 400f), -R(200f, 320f));
+            if (!knocked && sm.OnGround && !sm.Falling && MathF.Abs(sm.X - front) < 10f * sc) Topple(sm, v.Dir * R(250f, 400f), -R(200f, 320f));
         foreach (var c in Critters)
             if (c.State == 1 && c.OnGround && MathF.Abs(c.X - v.X) < v.W) TakeOff(c);
         foreach (var vis in Visitors)
@@ -667,6 +722,48 @@ internal sealed partial class SnowSim
         }
 
         if (v.Dir > 0 ? v.X - v.W > ScreenW : v.X + v.W < 0) Vehicle = null;
+    }
+
+    /// <summary>
+    /// Knocked by a snowball: it topples onto its side (a little hop, a bounce as it lands), lies
+    /// there a couple of seconds with its wheels in the air, then rocks back onto its wheels and
+    /// carries on. Its roof and bonnet stop being surfaces while it's over, so their snow slides off.
+    /// </summary>
+    void UpdateKnock(Vehicle v, float dt)
+    {
+        if (v.Hop > 0 || v.HopV > 0)
+        {
+            v.HopV -= 1100f * v.Scale * dt;
+            v.Hop += v.HopV * dt;
+            if (v.Hop <= 0) { v.Hop = 0; v.HopV = 0; }
+        }
+        if (v.Down <= 0 && v.Tilt == 0 && v.TiltV == 0) return;
+        const float side = 1.5f; // lying on its side (not quite 90°: the beacon props it up)
+        if (v.Down > 0)
+        {
+            // Past its balance point gravity takes it the rest of the way over.
+            v.TiltV += v.TipDir * 16f * dt;
+            v.Tilt += v.TiltV * dt;
+            if (MathF.Abs(v.Tilt) >= side)
+            {
+                if (MathF.Abs(v.TiltV) > 1.2f)
+                {
+                    Puff(v.X + v.TipDir * v.W * 0.5f, Ground.AnchorY - 2f, 8, 140f);
+                    v.TiltV = -v.TiltV * 0.28f; // a thump and a small bounce
+                }
+                else v.TiltV = 0;
+                v.Tilt = v.TipDir * side;
+            }
+            if (MathF.Abs(v.Tilt) > side - 0.1f) v.Down -= dt;
+            if (v.Down <= 0) { v.Down = 0; v.TiltV = -v.TipDir * 5.2f; } // heaves itself back up
+        }
+        else
+        {
+            // Rocking back onto its wheels, with a small wobble.
+            v.TiltV += (-v.Tilt * 60f - v.TiltV * 7f) * dt;
+            v.Tilt += v.TiltV * dt;
+            if (MathF.Abs(v.Tilt) < 0.004f && MathF.Abs(v.TiltV) < 0.05f) { v.Tilt = 0; v.TiltV = 0; }
+        }
     }
 
     // ───────────────────────────── butterflies and fireflies ─────────────────────────────
@@ -1060,7 +1157,7 @@ internal sealed partial class SnowSim
     void AddVehicleSurfaces(List<WinInfo> wins)
     {
         var v = Vehicle;
-        if (v == null || v.Blower || !GroundOn || Ground.Cells == 0) return;
+        if (v == null || v.Blower || v.Knocked || v.Hop > 0 || !GroundOn || Ground.Cells == 0) return;
         float u = v.Scale, left = v.X - v.W * 0.5f, top = Ground.AnchorY + 1f - v.H;
         void Add(IntPtr id, float x0, float x1, float y)
         {

@@ -652,6 +652,35 @@ internal static partial class Sprites
         Color.FromArgb(c.A, (int)(c.R * (1 - f)), (int)(c.G * (1 - f)), (int)(c.B * (1 - f)));
 
     /// <summary>Draw with GDI+ (anti-aliased) into a premultiplied sprite.</summary>
+    static readonly Dictionary<(string, float), Sprite> _labels = new();
+
+    /// <summary>A little dark pill with a line of text on it (the play cue's "what to do here").</summary>
+    public static Sprite Label(string text, float scale)
+    {
+        if (_labels.TryGetValue((text, scale), out var hit)) return hit;
+        if (_labels.Count > 40) _labels.Clear();
+        using var font = new Font("Segoe UI Semibold", 9f * scale, FontStyle.Regular, GraphicsUnit.Point);
+        SizeF size;
+        using (var probe = new Bitmap(1, 1)) using (var pg = Graphics.FromImage(probe)) size = pg.MeasureString(text, font);
+        float padX = 9f * scale, padY = 4f * scale;
+        int w = (int)MathF.Ceiling(size.Width + padX * 2), h = (int)MathF.Ceiling(size.Height + padY * 2);
+        var s = Render(w, h, g =>
+        {
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            float r = h * 0.5f;
+            using var path = new GraphicsPath();
+            path.AddArc(0.5f, 0.5f, r * 2 - 1, h - 1, 90, 180);
+            path.AddArc(w - r * 2 - 0.5f, 0.5f, r * 2 - 1, h - 1, 270, 180);
+            path.CloseFigure();
+            using (var bg = new SolidBrush(Color.FromArgb(215, 22, 25, 34))) g.FillPath(bg, path);
+            using (var edge = new Pen(Color.FromArgb(70, 255, 255, 255), 1f)) g.DrawPath(edge, path);
+            using var fg = new SolidBrush(Color.FromArgb(240, 246, 248, 252));
+            g.DrawString(text, font, fg, padX, padY);
+        });
+        _labels[(text, scale)] = s;
+        return s;
+    }
+
     public static Sprite Render(int w, int h, Action<Graphics> draw)
     {
         using var bmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);

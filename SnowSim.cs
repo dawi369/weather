@@ -833,9 +833,9 @@ internal sealed partial class SnowSim
                 }
                 else if (roll < 0.7f) p.Shape = 255; // a fluffy aggregate of several crystals
             }
-            if (R() < 0.015f)
+            if (false)
             {
-                // A big soft flake drifting by close to you, out of focus: depth, and it never lands.
+                // (Off: reviewers read the big blurred flakes as smudges on the screen.) A big soft flake drifting by close to you, out of focus: depth, and it never lands.
                 p.Shape = 254;
                 p.R *= 2.0f;
                 p.VY *= 1.5f;
@@ -977,7 +977,9 @@ internal sealed partial class SnowSim
                     p.X += p.VX * dt;
                     p.Y += p.VY * dt;
                     p.Rot += p.VX * 0.02f * dt;
-                    if (BallHitsSnowman(ref p)) { Particles[n] = Particles[--Count]; continue; }
+                    if (BallHitsSnowman(ref p) || BallHitsVehicle(ref p)) { Particles[n] = Particles[--Count]; continue; }
+                    BallScaresVisitors(p);
+                    if (p.X < -80f || p.X > ScreenW + 80f || p.Y > ScreenH + 80f) { Particles[n] = Particles[--Count]; continue; }
                     break;
                 case PKind.Ripple:
                     p.Age -= dt;

@@ -358,7 +358,17 @@ internal static unsafe partial class Renderer
     {
         float sc = v.Scale;
         var img = Sprites.Vehicle(v.Blower, ((int)(v.Frame * 12f)) & 1, sc);
-        float baseY = sim.Ground.AnchorY - yOff + MathF.Sin(v.Frame * 22f) * 0.35f;
+        float baseY = sim.Ground.AnchorY - yOff + MathF.Sin(v.Frame * 22f) * 0.35f - v.Hop;
+        if (v.Tilt != 0f)
+        {
+            // Tipped over: it pivots on the bottom corner it's falling towards.
+            float th = v.Tilt, half = v.W * 0.5f;
+            int t = th > 0 ? 1 : -1;
+            float cx = v.X + t * half - t * half * MathF.Cos(th);
+            float cy = baseY + 1f - half * MathF.Abs(MathF.Sin(th));
+            Blit(px, w, h, img, cx, cy, v.Dir > 0 ? 1f : -1f, 1f, 1f, th, pivotY: 1f);
+            return; // no beacon while it's over
+        }
         Blit(px, w, h, img, v.X, baseY + 1f, v.Dir > 0 ? 1f : -1f, 1f, 1f, 0f, pivotY: 1f);
         // Flashing beacon on the cab roof.
         float lx = 17.6f * sc;
@@ -924,18 +934,37 @@ internal static unsafe partial class Renderer
         if (x0 < x1 && y0 < y1)
         {
             Mark(x0, y0, x1, y1);
-            float th = 1.6f * s;
+            float th = 2.2f * s;
             for (int y = y0; y < y1; y++)
             for (int x = x0; x < x1; x++)
             {
                 float dx = x + 0.5f - cx, dy = y + 0.5f - cy;
                 float d = MathF.Sqrt(dx * dx + dy * dy);
+                // A thin dark outline outside the coloured ring, so it reads on white snow too.
+                float dark = 1f - MathF.Abs(d - r - th * 0.95f) / (0.9f * s);
+                if (dark > 0) Blend(px + y * w + x, 18, 22, 32, 0.45f * g * dark);
                 float cov = 1f - MathF.Abs(d - r) / th;
                 if (cov <= 0) continue;
-                Blend(px + y * w + x, acc.R, acc.G, acc.B, 0.75f * g * cov);
+                Blend(px + y * w + x, acc.R, acc.G, acc.B, 0.9f * g * cov);
             }
         }
         var pile = sim.PileUnderCursor(out _);
+        // What you can do right here, in a word or two, beside the ring.
+        if (g > 0.4f && !sim.Holding)
+        {
+            string? what = sim.Season switch
+            {
+                Season.Winter => pile != null && pile.Cells > 0 ? "Drag: snowball  ·  Right-click: snowman" : "Drag from the snow: snowball",
+                Season.Spring => "Drag: scatter petals  ·  Right-click: shower",
+                Season.Summer => sim.Night ? "Drag: dandelion  ·  Right-click: fireflies" : "Drag: dandelion  ·  Right-click: butterfly",
+                _ => "Drag: kick leaves  ·  Right-click: dust devil",
+            };
+            var lab = Sprites.Label(what, s);
+            float lx = cx + r + 12f * s + lab.W * 0.5f, ly = cy + r * 0.7f + lab.H * 0.5f;
+            if (lx + lab.W * 0.5f > w - 4) lx = cx - r - 12f * s - lab.W * 0.5f;
+            if (ly + lab.H * 0.5f > h - 4) ly = cy - r - 8f * s - lab.H * 0.5f;
+            Blit(px, w, h, lab, lx, ly, 1f, 1f, Math.Clamp((g - 0.4f) / 0.6f, 0f, 1f) * 0.95f);
+        }
         if (pile == null || pile.Cells == 0) return;
         float reach = 150f * s;
         for (float x = cx - reach; x <= cx + reach; x += 7f * s)

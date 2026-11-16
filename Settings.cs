@@ -62,6 +62,7 @@ internal sealed class Settings
 
     public bool WelcomeShown { get; set; }
     public int PlayHintsShown { get; set; }            // "hold Ctrl+Alt to play" tips shown so far
+    public bool PlayedOnce { get; set; }               // they've played at least once (no more tips)
 
     [JsonIgnore] public volatile bool Paused;
 
