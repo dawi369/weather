@@ -11,7 +11,7 @@ internal sealed class Visitor
     public int Dir = 1;        // facing: 1 right, -1 left
     public float X, Y, VX, VY, TX, TY, Age, Life, Timer, Phase, HopT, Lift;
     public IntPtr Surf;
-    public bool OnGround;
+    public bool OnGround, Preparing;
     public Snowman? OnSnowman;
     public float RelX;
 }
@@ -85,7 +85,19 @@ internal sealed partial class SnowSim
 
     void FlyOff(Visitor v)
     {
-        if (v.State == 2) return;
+        if (v.State == 2 || v.Preparing) return;
+        if (v.Kind == VisitorKind.Ladybird && v.State == 1)
+        {
+            v.Preparing = true;
+            v.Action = 2;
+            v.Timer = 0.22f;
+            return;
+        }
+        LiftOff(v);
+    }
+
+    void LiftOff(Visitor v)
+    {
         v.State = 2;
         v.OnSnowman = null;
         float away = CursorX < v.X ? 1f : -1f;
@@ -108,6 +120,9 @@ internal sealed partial class SnowSim
 
             if (v.State == 1)
             {
+                // A ladybird opens its wing cases a moment before it lifts off.
+                if (v.Preparing && (v.Timer -= dt) <= 0) { v.Preparing = false; LiftOff(v); continue; }
+                if (v.Preparing) continue;
                 if (cursorNear || v.Age > v.Life) { FlyOff(v); continue; }
                 float baseY;
                 if (v.OnSnowman is Snowman sm)

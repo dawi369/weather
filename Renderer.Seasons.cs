@@ -87,7 +87,7 @@ internal static unsafe partial class Renderer
     {
         float hsh = Hash01((xr / 3) * 7 + (int)(depth / 2f) * 13, seed);
         float f = Math.Clamp(depth / 7f, 0f, 1f);
-        float r = (255f - 20f * f) * shade, g = (198f + 40f * hsh - 42f * f) * shade, b = (216f + 28f * hsh - 30f * f) * shade;
+        float r = (255f - 22f * f) * shade, g = (180f + 38f * hsh - 44f * f) * shade, b = (204f + 26f * hsh - 30f * f) * shade;
         Blend(p, MathF.Min(255f, r), MathF.Min(255f, g), MathF.Min(255f, b), 0.97f * cov);
     }
 
@@ -657,7 +657,7 @@ internal static unsafe partial class Renderer
         float t = sim.Rainbow;
         if (t <= 0) return;
         float age = SnowSim.RainbowLife - t;
-        float A = MathF.Min(1f, t / 8f) * 0.62f; // fades out over its last seconds
+        float A = MathF.Min(1f, t / 8f) * 0.5f; // fades out over its last seconds; never loud enough to compete with text
         if (A <= 0.003f) return;
 
         // Geometry: the primary bow, a fainter secondary bow outside it (colours reversed), and the
@@ -903,5 +903,49 @@ internal static unsafe partial class Renderer
             cb = (cb + (mb - cb) * 0.55f) * 0.9f;
         }
         Disc(px, w, h, cx, cy, r, alpha * _seasonFade, cr, cg, cb, soft);
+    }
+}
+
+internal static unsafe partial class Renderer
+{
+    /// <summary>
+    /// While Ctrl+Alt are held: a soft ring in the season's colour round the pointer, and the pile
+    /// nearest it shimmers, so it's clear play is on and where to grab.
+    /// </summary>
+    static void DrawPlayCue(uint* px, int w, int h, SnowSim sim)
+    {
+        float g = sim.PlayGlow, s = _scale;
+        var acc = SeasonInfo.Accent(sim.Season);
+        float cx = sim.CursorX, cy = sim.CursorY;
+        float r = 16f * s * (1f + 0.07f * MathF.Sin(_time * 5f));
+        _clip = false;
+        int x0 = Math.Max(0, (int)(cx - r - 4)), x1 = Math.Min(w, (int)(cx + r + 5));
+        int y0 = Math.Max(0, (int)(cy - r - 4)), y1 = Math.Min(h, (int)(cy + r + 5));
+        if (x0 < x1 && y0 < y1)
+        {
+            Mark(x0, y0, x1, y1);
+            float th = 1.6f * s;
+            for (int y = y0; y < y1; y++)
+            for (int x = x0; x < x1; x++)
+            {
+                float dx = x + 0.5f - cx, dy = y + 0.5f - cy;
+                float d = MathF.Sqrt(dx * dx + dy * dy);
+                float cov = 1f - MathF.Abs(d - r) / th;
+                if (cov <= 0) continue;
+                Blend(px + y * w + x, acc.R, acc.G, acc.B, 0.75f * g * cov);
+            }
+        }
+        var pile = sim.PileUnderCursor(out _);
+        if (pile == null || pile.Cells == 0) return;
+        float reach = 150f * s;
+        for (float x = cx - reach; x <= cx + reach; x += 7f * s)
+        {
+            if (x < pile.Left || x >= pile.Right || x < 0 || x >= w) continue;
+            int col = pile.Col(x);
+            if (pile.Vis[col] == 0 || pile.H[col] < 1f) continue;
+            float f = 1f - MathF.Abs(x - cx) / reach;
+            float tw = 0.6f + 0.4f * MathF.Sin(_time * 5f + x * 0.05f);
+            Glow(px, w, h, x, pile.PileTop(col), 7f * s, 0.6f * g * f * tw, acc.R, acc.G, acc.B);
+        }
     }
 }

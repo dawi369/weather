@@ -305,9 +305,9 @@ internal sealed class SettingsForm : Form
                     Toggle("Plough the taskbar when it gets deep", "A little snowplough drives along and pushes the snow off the edge. The same switch sends the leaf blower in autumn.", () => _s.AutoPlow, v => _s.AutoPlow = v),
                     showing ? Button("Send the snowplough", "Clear the taskbar now.", "Send", () => _host.Request(SeasonAction.Plow), primary: true) : null));
                 list.Add(new Caption("Play"));
-                list.Add(new Tip(("Ctrl+Alt+Drag", "Scoop snow off a ledge, roll it bigger, and throw it."),
-                                 ("Ctrl+Alt+Click", "On the desktop: splat. Over a window, it just drops behind it."),
-                                 ("Ctrl+Alt+Right-click", "Build a snowman from the snow there (or knock one over).")));
+                list.Add(new Tip(("Ctrl+Alt+Drag", "Start on a snowy ledge: roll a snowball, let go to throw it."),
+                                 ("Ctrl+Alt+Click", "On the desktop: a snowball splat."),
+                                 ("Ctrl+Alt+Right-click", "On snow: build a snowman. On a snowman: knock it over.")));
                 break;
 
             case Season.Spring:
@@ -356,6 +356,15 @@ internal sealed class SettingsForm : Form
                 list.Add(new Tip(("Ctrl+Alt+Drag", "Kick through the leaves and send them flying."),
                                  ("Ctrl+Alt+Right-click", "Start a dust devil right there.")));
                 break;
+        }
+        // How to play goes right under the banner, where it's seen first.
+        int at = list.FindIndex(c => c is Caption cap && cap.Text == "Play");
+        if (at > 0 && at + 1 < list.Count)
+        {
+            var tip = list[at + 1];
+            list.RemoveRange(at, 2);
+            list.Insert(1, new Caption("How to play: hold Ctrl+Alt"));
+            list.Insert(2, tip);
         }
         return list;
     }

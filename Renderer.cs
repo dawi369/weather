@@ -58,6 +58,7 @@ internal static unsafe partial class Renderer
         DrawVisitors(px, w, h, sim, ground: false, 0);
         DrawBees(px, w, h, sim);
         DrawSplats(px, w, h, sim);
+        if (sim.PlayGlow > 0.02f) DrawPlayCue(px, w, h, sim);
         if (sim.Holding)
         {
             float hr = sim.HeldRadius + 2f;
@@ -72,10 +73,10 @@ internal static unsafe partial class Renderer
     /// <param name="yOff">Screen y of the buffer's first row.</param>
     static void DrawParticle(uint* px, int w, int h, ref Particle p, int yOff)
     {
-        if (p.Vanish <= 0) { DrawParticleCore(px, w, h, ref p, yOff); return; }
-        // Fading out because the season changed.
+        if (p.Vanish == 0) { DrawParticleCore(px, w, h, ref p, yOff); return; }
+        // Fading out because the season changed (positive), or in because it just began (negative).
         float a = p.Alpha;
-        p.Alpha *= MathF.Min(1f, p.Vanish / 0.5f);
+        p.Alpha *= p.Vanish > 0 ? MathF.Min(1f, p.Vanish / 0.5f) : Math.Clamp(1f + p.Vanish / 1.4f, 0f, 1f);
         DrawParticleCore(px, w, h, ref p, yOff);
         p.Alpha = a;
     }
@@ -479,7 +480,8 @@ internal static unsafe partial class Renderer
         float hEdge = s.H[e];
         float reach = SnowSim.CorniceReach(over, hEdge);
         if (reach < 0.8f) return;
-        float droop = MathF.Min(hEdge * 0.7f, reach * 1.1f); // curls down over the edge rather than out
+        float sag = left ? s.SagL : s.SagR;
+        float droop = MathF.Min(hEdge * 0.7f, reach * 1.1f) * (1f + 0.9f * sag * sag); // curls down over the edge, sagging more as it nears breaking
         float edge = left ? s.Left : s.Right;
         // Start exactly where the drawn pile ends, so there is no step or notch at the corner.
         float cxe = left ? 0.5f : s.Right - s.Left - 0.5f;

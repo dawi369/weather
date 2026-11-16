@@ -14,6 +14,7 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
     readonly TaskbarWatcher _taskbar;
     readonly System.Windows.Forms.Timer _refresh = new() { Interval = 3000 };
     readonly System.Windows.Forms.Timer _seasonTimer = new() { Interval = 2000 };
+    readonly System.Windows.Forms.Timer _hoverTimer = new() { Interval = 500 };
     readonly Engine _engine;
     readonly NotifyIcon _icon;
     readonly ContextMenuStrip _menu;
@@ -48,6 +49,13 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
         UpdateTrayIcon();
         _icon.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowSettings(); };
         _seasonTimer.Tick += (_, _) => UpdateTrayIcon();
+        // Resting the mouse on a pile for a moment counts as curiosity too.
+        _hoverTimer.Tick += (_, _) =>
+        {
+            var sim = _engine.Sim;
+            if (sim.CursorStill > 1.5f && !sim.PlayHeld) OfferPlayHint((int)sim.CursorX, (int)sim.CursorY);
+        };
+        _hoverTimer.Start();
         _seasonTimer.Start();
 
         // Tests: WINDOWSILL_SHOWMENU=1 pops the tray menu up by itself (for screenshots).
@@ -136,6 +144,7 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
         });
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()) { Font = Theme.Font(10f, FontStyle.Bold), Padding = pad });
+        _menu.Items.Add(new ToolStripMenuItem("How to play…", null, (_, _) => ShowWelcome()) { Padding = pad });
         _menu.Items.Add(new ToolStripSeparator());
 
         // The season's own things to do.
@@ -201,7 +210,7 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
             Season.Summer => "Ctrl+Alt+drag to blow a dandelion clock. Ctrl+Alt+right-click releases a butterfly.",
             _ => "Ctrl+Alt+drag to kick through the leaves. Ctrl+Alt+right-click whips up a dust devil.",
         };
-        _icon.ShowBalloonTip(6000, "Hold Ctrl+Alt to play", how, ToolTipIcon.None);
+        new TipBubble("Hold Ctrl+Alt to play", how, SeasonInfo.Accent(CurrentSeason), new Point(x, y)).Show();
     }
     public void ClearNow() => _engine.RequestWipe();
 
@@ -225,9 +234,12 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
         _settingsForm.Activate();
     }
 
+    WelcomeCard? _welcome;
+
     void ShowWelcome()
     {
-        var card = new WelcomeCard(CurrentSeason);
+        if (_welcome is { IsDisposed: false }) return; // already showing
+        var card = _welcome = new WelcomeCard(CurrentSeason);
         card.OpenSettings += () => ShowSettings(1 + (int)CurrentSeason);
         card.FormClosed += (_, _) => { _settings.WelcomeShown = true; _settings.Save(); };
         card.Show();
@@ -311,6 +323,7 @@ internal sealed class TrayApp : ApplicationContext, IAppHost
         _engine.Stop();
         _refresh.Stop();
         _seasonTimer.Stop();
+        _hoverTimer.Stop();
         _updateTimer.Stop();
         _taskbar.Dispose();
         _icon.Visible = false;

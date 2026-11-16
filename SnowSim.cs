@@ -46,6 +46,7 @@ internal sealed class Surface
     public float SpillL, SpillR;        // snow (px²) that has flowed over each edge this frame
     public float OverL, OverR;          // snow (px²) in the overhang (cornice) built out past each free edge
     public float BreakL, BreakR;        // share of what the edge can hold at which each overhang breaks off next
+    public float SagL, SagR;            // 0..1: how near each overhang is to breaking (it sags as it nears)
 
     // A window sitting right next to this one: the two piles join into one blanket across the gap.
     public Surface? LinkL, LinkR;
@@ -832,11 +833,11 @@ internal sealed partial class SnowSim
                 }
                 else if (roll < 0.7f) p.Shape = 255; // a fluffy aggregate of several crystals
             }
-            if (R() < 0.03f)
+            if (R() < 0.015f)
             {
                 // A big soft flake drifting by close to you, out of focus: depth, and it never lands.
                 p.Shape = 254;
-                p.R *= 2.6f;
+                p.R *= 2.0f;
                 p.VY *= 1.5f;
                 p.Sway *= 1.6f;
                 p.Alpha = FlakeAlpha * 0.45f;
@@ -877,6 +878,7 @@ internal sealed partial class SnowSim
                 p.Vanish -= dt;
                 if (p.Vanish <= 0) { Particles[n] = Particles[--Count]; continue; }
             }
+            else if (p.Vanish < 0) p.Vanish = MathF.Min(0f, p.Vanish + dt); // fading in
 
             // A flake, petal or leaf that has landed rests on the pile (riding along if its window
             // moves) and fades out. Seeds rest a moment and then lift off again.
@@ -1634,6 +1636,9 @@ internal sealed partial class SnowSim
         bool jolt = MathF.Abs(s.AX) > ShakeAccel * 0.5f || s.AY > FlingAccel * 0.5f;
         // Never a trickle: only a real chunk comes away (a jolt shakes off one sooner, but still a chunk).
         float minSlab = Material == Material.Snow ? 14f : 0f;
+        // How close it is to giving way: it sags more and more before it breaks (see DrawCornice).
+        float sag = Math.Clamp(over / MathF.Max(cap * brk, MathF.Max(minSlab, 1f)), 0f, 1f);
+        if (left) s.SagL = sag; else s.SagR = sag;
         if (over < MathF.Max(cap * brk, minSlab) && !(jolt && over >= minSlab * 0.5f) && hEdge >= 1f) return;
         if (over < minSlab * 0.5f) return;
         // Petals and leaves come off one at a time: wait until there is at least a whole one.
@@ -1651,7 +1656,7 @@ internal sealed partial class SnowSim
         // little, the way a slab crumbles, rather than as one round ball or a string of beads.
         float cx0 = edgeX + side * reach * 0.5f, cy0 = s.AnchorY - hEdge * 0.3f;
         AddClump(cx0, cy0, slab * 0.55f, vx, vy, PKind.Clump);
-        int bits = Material == Material.Snow ? 3 + _rng.Next(3) : 1; // leaves and petals: a few, not a wall
+        int bits = Material == Material.Snow ? 2 + _rng.Next(2) : 1; // a few, not a shower of specks
         for (int k = 0; k < bits; k++)
             AddClump(cx0 + R(-1f, 1f) * MathF.Max(3f, reach), cy0 + R(-0.6f, 0.8f) * MathF.Max(2f, hEdge * 0.5f), slab * 0.45f / bits * R(0.4f, 1.6f),
                      vx + R(-22f, 22f), vy + R(-6f, 14f), PKind.Clump); // uneven bits that drift apart as they fall

@@ -23,7 +23,7 @@ internal sealed class WelcomeCard : Form
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
         BackColor = Theme.Card;
-        Size = new Size(S(400), S(214));
+        Size = new Size(S(470), S(214));
         var work = Screen.PrimaryScreen!.WorkingArea;
         Location = new Point(work.Right - Width - S(16), work.Bottom - Height - S(16));
         Opacity = 0;
@@ -53,7 +53,7 @@ internal sealed class WelcomeCard : Form
         };
         _life.Tick += (_, _) => FadeOut();
         HandleCreated += (_, _) => Theme.DarkChrome(this);
-        Shown += (_, _) => { _fade.Start(); _life.Start(); };
+        Shown += (_, _) => _fade.Start(); // it stays until you close it: this is how you learn to play
     }
 
     protected override bool ShowWithoutActivation => true;
@@ -110,8 +110,8 @@ internal sealed class WelcomeCard : Form
         using var white = new SolidBrush(Color.White);
         using var soft = new SolidBrush(Color.FromArgb(225, 255, 255, 255));
         using var text = new SolidBrush(Color.FromArgb(214, 218, 228));
-        g.DrawString($"{AppInfo.Name} is on", hf, white, S(74), S(14));
-        g.DrawString($"It's {SeasonInfo.Name(_season).ToLowerInvariant()}. Settings are in the tray.", sf, soft,
+        g.DrawString("Hold Ctrl+Alt to play", hf, white, S(74), S(14));
+        g.DrawString($"{AppInfo.Name} is running. Your clicks still go to your apps as normal.", sf, soft,
                      new RectangleF(S(75), S(40), Width - S(150), S(32)));
 
         float y = 90 * k;
@@ -136,15 +136,15 @@ internal sealed class WelcomeCard : Form
         }
         Line("Ctrl+Alt+Drag", _season switch
         {
-            Season.Winter => "scoop and throw a snowball",
-            Season.Spring => "sweep through the petals",
-            Season.Summer => "blow a dandelion clock",
-            _ => "kick up the leaves",
+            Season.Winter => "on snow: roll a snowball, let go to throw",
+            Season.Spring => "through the petals to scatter them",
+            Season.Summer => "to blow a dandelion clock",
+            _ => "through the leaves to kick them up",
         });
         Line("Ctrl+Alt+Right-click", _season switch
         {
-            Season.Winter => "build a snowman",
-            Season.Spring => "call a spring shower",
+            Season.Winter => "on snow: build a snowman",
+            Season.Spring => "start a spring shower",
             Season.Summer => "release a butterfly",
             _ => "whip up a dust devil",
         });

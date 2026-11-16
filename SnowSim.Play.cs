@@ -90,6 +90,10 @@ internal sealed partial class SnowSim
     float _critterTimer = 12f, _devilTimer = 150f, _plowCheck = 10f, _plowCooldown;
     float _prevCX, _prevCY;
     public float CursorStill { get; private set; }
+    /// <summary>Ctrl+Alt are held (play is on): set by the engine every frame.</summary>
+    public bool PlayHeld;
+    float _playGlow; // eases in and out with PlayHeld
+    public float PlayGlow => _playGlow;
     /// <summary>The mouse is over a window (so things behind it can't come to it).</summary>
     public bool CursorOverWindow { get; private set; }
 
@@ -110,6 +114,7 @@ internal sealed partial class SnowSim
 
         float moved = MathF.Abs(CursorX - _prevCX) + MathF.Abs(CursorY - _prevCY);
         CursorStill = moved < 3f ? CursorStill + dt : 0f;
+        _playGlow += ((PlayHeld ? 1f : 0f) - _playGlow) * MathF.Min(1f, dt * 10f);
         CursorOverWindow = false;
         foreach (var s in Z)
             if (CursorX >= s.Left && CursorX < s.Right && CursorY >= s.Top && CursorY < s.Bottom) { CursorOverWindow = true; break; }
@@ -1069,4 +1074,10 @@ internal sealed partial class SnowSim
         Add(PloughBonnet, 28.5f, 44f, 14f);
         Add(PloughRoof, 8.5f, 27.5f, 3.6f);
     }
+}
+
+internal sealed partial class SnowSim
+{
+    /// <summary>The pile under or just below the pointer (for the play highlight), or null.</summary>
+    public Surface? PileUnderCursor(out int col) => PileNear(CursorX, CursorY, out col);
 }

@@ -54,7 +54,7 @@ internal sealed partial class SnowSim
                 EdgeLimit = MathF.Min(EdgeLimit, MaxDepth * 0.8f);
                 break;
             case Material.Leaves:
-                MaxDepth = Math.Clamp(MaxDepth * 0.75f, 6f, 28f);
+                MaxDepth = Math.Clamp(MaxDepth * 0.6f, 6f, 22f);
                 Repose = MathF.Max(Repose * 1.3f, 1.0f);
                 EdgeLimit = MathF.Min(EdgeLimit * 1.2f, MaxDepth);
                 break;
@@ -87,7 +87,10 @@ internal sealed partial class SnowSim
     const float ChangeTime = 1.1f;
 
     /// <summary>1 normally; falls to 0 while the season changes over (for things drawn by season, like the meadow).</summary>
-    public float SeasonFade => _pending != null ? Math.Clamp(_changeT / ChangeTime, 0f, 1f) : 1f;
+    public float SeasonFade => _pending is Season p
+        ? Season != p ? Math.Clamp((_changeT - ChangeTime * 0.5f) / (ChangeTime * 0.5f), 0f, 1f) // the old season fading out
+                      : Math.Clamp(1f - _changeT / (ChangeTime * 0.5f), 0f, 1f)                 // the new one fading in
+        : 1f;
 
     /// <summary>
     /// The season turned: in about a second everything of the old one melts and fades away where it
@@ -127,25 +130,54 @@ internal sealed partial class SnowSim
         }
         if (_pending is Season next)
         {
-            // Everything settled sinks away together, quickly but smoothly.
+            // Everything settled sinks away together, quickly but smoothly. Halfway through, the new
+            // season takes over: it fades in already spread across the screen, so there is never an
+            // empty moment between the two.
             _changeT -= dt;
-            float k = MathF.Exp(-dt * 4.5f);
-            foreach (var s in _windows.Values) { for (int i = 0; i < s.Cells; i++) s.H[i] *= k; s.OverL *= k; s.OverR *= k; s.SpillL = s.SpillR = 0; }
-            for (int i = 0; i < Ground.Cells; i++) Ground.H[i] *= k;
-            if (_changeT <= 0)
+            if (Season != next && _changeT <= ChangeTime * 0.5f)
             {
                 foreach (var s in _windows.Values) { Array.Clear(s.H); s.OverL = s.OverR = 0; }
                 Array.Clear(Ground.H);
-                _pending = null;
                 SetSeason(next);
+                PreRoll();
             }
+            if (Season != next)
+            {
+                float k = MathF.Exp(-dt * 4.5f);
+                foreach (var s in _windows.Values) { for (int i = 0; i < s.Cells; i++) s.H[i] *= k; s.OverL *= k; s.OverR *= k; s.SpillL = s.SpillR = 0; }
+                for (int i = 0; i < Ground.Cells; i++) Ground.H[i] *= k;
+            }
+            if (_changeT <= 0) _pending = null;
+        }
+    }
+
+    /// <summary>
+    /// A new season begins mid-air: a few seconds' worth of its falling things, spread down the
+    /// screen and fading in, instead of everything starting at the top.
+    /// </summary>
+    void PreRoll()
+    {
+        int before = Count;
+        _spawnAcc = 0;
+        switch (Season)
+        {
+            case Season.Winter: SpawnSnow(5f); break;
+            case Season.Spring: SpawnPetals(5f); break;
+            case Season.Summer: SpawnSeeds(5f); break;
+            default: SpawnLeaves(5f); break;
+        }
+        for (int i = before; i < Count; i++)
+        {
+            ref var p = ref Particles[i];
+            p.Y = R(-20f, ScreenH * 0.9f);
+            p.Vanish = -R(0.5f, 1.4f); // negative: fading in
         }
     }
 
     void Spawn(float dt)
     {
         UpdateSeason(dt);
-        if (_pending != null) return; // the old season is still clearing away
+        if (_pending is Season p && Season != p) return; // the old season is still clearing away
         switch (Season)
         {
             case Season.Winter: SpawnSnow(dt); break;

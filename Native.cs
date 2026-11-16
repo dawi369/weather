@@ -178,6 +178,7 @@ internal static class Native
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
 
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+    [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vk);
 
     /// <summary>
     /// Keep a snow window always-on-top but directly *below* the taskbar, so the taskbar, its menus

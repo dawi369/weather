@@ -339,6 +339,8 @@ internal sealed unsafe class Engine
                 blank = false;
 
                 if (Native.GetCursorPos(out var cur)) { _sim.CursorX = cur.X; _sim.CursorY = cur.Y; }
+                // Holding Ctrl+Alt: show that play is on (a ring round the pointer, the nearby pile lights up).
+                _sim.PlayHeld = _settings.PlayWithMouse && (Native.GetAsyncKeyState(0x11) & 0x8000) != 0 && (Native.GetAsyncKeyState(0x12) & 0x8000) != 0;
                 if (_demo != null) Demo(now);
                 double p0 = clock.Elapsed.TotalSeconds, p1, p2, p3;
                 try
