@@ -1168,8 +1168,30 @@ internal sealed partial class SnowSim
             if (r.Right <= 0 || r.Left >= ScreenW) return;
             wins.Insert(0, new WinInfo(id, r, false, false));
         }
-        Add(PloughBonnet, 28.5f, 44f, 14f);
+        // No bonnet surface: snow caught in the nook between the windscreen and the blade looked
+        // stuck. That nook is an invisible ramp instead (BonnetRamp), so snow bounces off it.
         Add(PloughRoof, 8.5f, 27.5f, 3.6f);
+    }
+
+    /// <summary>
+    /// The sloping front of the plough, from the top of the windscreen down to the top of the blade:
+    /// snow falling onto it glances off and tumbles forward off the front, never settling there.
+    /// </summary>
+    void BonnetRamp(ref Particle p)
+    {
+        var v = Vehicle!;
+        if (v.Blower || v.Knocked || !GroundOn) return;
+        float u = v.Scale, left = v.X - v.W * 0.5f, top = Ground.AnchorY + 1f - v.H - v.Hop;
+        float sx = (p.X - left) / u;
+        if (v.Dir < 0) sx = 70f - sx;          // sprite units, facing right
+        const float x0 = 27.5f, x1 = 48f, y0 = 3.6f, y1 = 15f;
+        if (sx < x0 || sx > x1) return;
+        float rampY = top + (y0 + (sx - x0) / (x1 - x0) * (y1 - y0)) * u;
+        if (p.Y < rampY || p.Y > top + 24f * u) return;
+        p.Y = rampY - 0.5f;
+        p.VY = -MathF.Abs(p.VY) * R(0.2f, 0.35f);
+        p.VX = v.Dir * MathF.Max(MathF.Abs(p.VX) * 0.6f, R(90f, 170f) * MathF.Sqrt(u)) + v.Dir * v.Speed * 0.5f;
+        p.NoLand = MathF.Max(p.NoLand, 0.05f);
     }
 }
 

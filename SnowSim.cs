@@ -999,6 +999,7 @@ internal sealed partial class SnowSim
                     continue;
             }
 
+            if (Vehicle != null && p.VY > 0) BonnetRamp(ref p);
             bool remove = false;
             // Things falling from the sky mostly pass in front of a window's top edge; things that
             // came off a pile (or were thrown) are at window depth and always hit it.
